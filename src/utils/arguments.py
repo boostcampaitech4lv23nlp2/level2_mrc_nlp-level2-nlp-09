@@ -2,12 +2,13 @@ from typing import Optional
 
 from dataclasses import dataclass, field
 
-from transformers import TrainingArguments
 import yaml
+from transformers import TrainingArguments
 from yaml.loader import SafeLoader
 
-with open('./src/config/config.yml') as f:
+with open("./src/config/config.yml") as f:
     data = yaml.load(f, Loader=SafeLoader)
+
 
 def get_training_args(
     output_dir=data["output_dir"],
@@ -54,21 +55,15 @@ class ModelArguments:
 
     model_name_or_path: str = field(
         default=data["model_name_or_path"],
-        metadata={
-            "help": "Path to pretrained model or model identifier from huggingface.co/models"
-        },
+        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"},
     )
     config_name: Optional[str] = field(
         default=data["config_name"],
-        metadata={
-            "help": "Pretrained config name or path if not the same as model_name"
-        },
+        metadata={"help": "Pretrained config name or path if not the same as model_name"},
     )
     tokenizer_name: Optional[str] = field(
         default=data["tokenizer_name"],
-        metadata={
-            "help": "Pretrained tokenizer name or path if not the same as model_name"
-        },
+        metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"},
     )
 
 
@@ -107,9 +102,7 @@ class DataTrainingArguments:
     )
     doc_stride: int = field(
         default=data["doc_stride"],
-        metadata={
-            "help": "When splitting up a long document into chunks, how much stride to take between chunks."
-        },
+        metadata={"help": "When splitting up a long document into chunks, how much stride to take between chunks."},
     )
     max_answer_length: int = field(
         default=data["max_answer_length"],
@@ -127,10 +120,6 @@ class DataTrainingArguments:
     )
     top_k_retrieval: int = field(
         default=data["top_k_retrieval"],
-        metadata={
-            "help": "Define how many top-k passages to retrieve based on similarity."
-        },
+        metadata={"help": "Define how many top-k passages to retrieve based on similarity."},
     )
-    use_faiss: bool = field(
-        default=data["use_faiss"], metadata={"help": "Whether to build with faiss"}
-    )
+    use_faiss: bool = field(default=data["use_faiss"], metadata={"help": "Whether to build with faiss"})
