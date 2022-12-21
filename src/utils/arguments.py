@@ -3,7 +3,11 @@ from typing import Optional
 from dataclasses import dataclass, field
 
 from transformers import TrainingArguments
+import yaml
+from yaml.loader import SafeLoader
 
+with open('./config/config.yml') as f:
+    data = yaml.load(f, Loader=SafeLoader)
 
 def get_training_args(
     output_dir="./results",
