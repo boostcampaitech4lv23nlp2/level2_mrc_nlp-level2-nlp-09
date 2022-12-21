@@ -10,21 +10,21 @@ with open('./src/config/config.yml') as f:
     data = yaml.load(f, Loader=SafeLoader)
 
 def get_training_args(
-    output_dir="./results",
-    save_total_limit=5,
-    save_strategy="epoch",
-    num_train_epochs=1,
-    learning_rate=5e-5,
-    per_device_train_batch_size=8,
-    per_device_eval_batch_size=8,
-    warmup_steps=0,
-    weight_decay=0.01,
-    logging_dir="./logs",
-    logging_steps=100,
-    evaluation_strategy="epoch",
-    do_train=True,
-    do_eval=True,
-    do_predict=False,
+    output_dir=data["output_dir"],
+    save_total_limit=data["save_total_limit"],
+    save_strategy=data["save_strategy"],
+    num_train_epochs=data["num_train_epochs"],
+    learning_rate=data["learning_rate"],
+    per_device_train_batch_size=data["per_device_train_batch_size"],
+    per_device_eval_batch_size=data["per_device_eval_batch_size"],
+    warmup_steps=data["warmup_steps"],
+    weight_decay=data["weight_decay"],
+    logging_dir=data["logging_dir"],
+    logging_steps=data["logging_steps"],
+    evaluation_strategy=data["evaluation_strategy"],
+    do_train=data["do_train"],
+    do_eval=data["do_eval"],
+    do_predict=data["do_predict"],
 ):
     training_args = TrainingArguments(
         output_dir=output_dir,  # output directory
