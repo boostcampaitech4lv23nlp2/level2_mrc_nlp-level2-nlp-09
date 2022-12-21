@@ -1,7 +1,7 @@
 model_name_or_path: "klue/bert-base"
 config_name: null
 tokenizer_name: null
-dataset_name: "../data/train_dataset"
+dataset_name: "data/train_dataset"
 overwrite_cache: False
 preprocessing_num_workers: null
 max_seq_length: 384
