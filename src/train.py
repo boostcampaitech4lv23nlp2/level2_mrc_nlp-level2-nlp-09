@@ -16,10 +16,13 @@ from transformers import (
     set_seed,
 )
 
+import wandb
+
 from .trainer_qa import QuestionAnsweringTrainer
 from .utils import DataTrainingArguments, ModelArguments, check_no_error, postprocess_qa_predictions
 
 logger = logging.getLogger(__name__)
+wandb.init(project="MRC", entity="ecl-mlstudy", name="kyc-test")
 
 
 def train(model_args, data_args, training_args):
