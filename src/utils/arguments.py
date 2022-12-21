@@ -16,7 +16,7 @@ def get_training_args(
     warmup_steps=0,
     weight_decay=0.01,
     logging_dir="./logs",
-    logging_steps=100,
+    logging_steps=10,
     evaluation_strategy="epoch",
     do_train=True,
     do_eval=True,

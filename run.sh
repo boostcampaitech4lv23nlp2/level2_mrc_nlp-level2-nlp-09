@@ -24,5 +24,5 @@ python main.py \
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --per_device_eval_batch_size ${per_device_eval_batch_size} \
     --model_name_or_path ${model_name_or_path} \
-    --report_to ${report_to}
+    --report_to ${report_to} \
     --logging_steps=${logging_steps}

@@ -3,6 +3,7 @@ from typing import NoReturn
 import logging
 import os
 import sys
+from datetime import datetime, timedelta
 
 from datasets import DatasetDict, load_from_disk, load_metric
 from transformers import (
@@ -22,7 +23,9 @@ from .trainer_qa import QuestionAnsweringTrainer
 from .utils import DataTrainingArguments, ModelArguments, check_no_error, postprocess_qa_predictions
 
 logger = logging.getLogger(__name__)
-wandb.init(project="MRC", entity="ecl-mlstudy", name="kyc-test")
+k_time = (datetime.now() + timedelta(hours=9)).strftime("%m%d%H%M")
+name = str(TrainingArguments.num_train_epochs) + "_" + ModelArguments.model_name_or_path + "_" + k_time
+wandb.init(project="MRC", entity="ecl-mlstudy", name=name)
 
 
 def train(model_args, data_args, training_args):
