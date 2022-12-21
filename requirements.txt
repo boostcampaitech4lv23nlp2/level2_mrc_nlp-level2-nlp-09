@@ -1,0 +1,8 @@
+torch==1.13
+datasets==2.7.1
+transformers==4.25.1
+tqdm
+pandas
+scikit-learn
+faiss-gpu
+numpy>=1.20.
