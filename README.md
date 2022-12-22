@@ -37,7 +37,7 @@ make test
 
 #### Run (Training/Inference)
 ```bash
-sh run.sh
+python main.py
 ```
 
 
