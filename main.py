@@ -8,7 +8,7 @@ if __name__ == "__main__":
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
 
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-    if training_args.do_train:
+    if training_args.do_train or training_args.do_eval:
         train(model_args, data_args, training_args)
     if training_args.do_predict:
         inference(model_args, data_args, training_args)
