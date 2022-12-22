@@ -318,6 +318,7 @@ def run_mrc(
         metrics = trainer.evaluate()
 
         metrics["eval_samples"] = len(eval_dataset)
+        wandb.log(metrics)
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)

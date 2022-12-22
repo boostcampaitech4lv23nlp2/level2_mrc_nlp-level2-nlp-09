@@ -26,6 +26,7 @@ def get_training_args(
     do_train=data["do_train"],
     do_eval=data["do_eval"],
     do_predict=data["do_predict"],
+    report_to=["wandb"],
 ):
     training_args = TrainingArguments(
         output_dir=output_dir,  # output directory
@@ -43,6 +44,7 @@ def get_training_args(
         do_train=do_train,
         do_eval=do_eval,
         do_predict=do_predict,
+        report_to=report_to,
     )
     return training_args
 
