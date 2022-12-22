@@ -150,3 +150,4 @@ result_analysis/
 output/
 data/
 wandb/
+nohup.out
