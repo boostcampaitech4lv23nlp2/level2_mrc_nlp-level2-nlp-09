@@ -9,8 +9,6 @@ num_train_epochs="3"
 per_device_train_batch_size="8"
 per_device_eval_batch_size="8"
 model_name_or_path="klue/bert-base"
-report_to="wandb"
-logging_steps="50"
 
 python main.py \
     --do_eval ${do_eval} \
@@ -23,6 +21,4 @@ python main.py \
     --num_train_epochs ${num_train_epochs} \
     --per_device_train_batch_size ${per_device_train_batch_size} \
     --per_device_eval_batch_size ${per_device_eval_batch_size} \
-    --model_name_or_path ${model_name_or_path} \
-    --report_to ${report_to} \
-    --logging_steps=${logging_steps}
+    --model_name_or_path ${model_name_or_path}

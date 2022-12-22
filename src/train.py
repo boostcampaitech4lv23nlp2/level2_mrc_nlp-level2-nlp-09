@@ -23,9 +23,6 @@ from .trainer_qa import QuestionAnsweringTrainer
 from .utils import DataTrainingArguments, ModelArguments, check_no_error, postprocess_qa_predictions
 
 logger = logging.getLogger(__name__)
-k_time = (datetime.now() + timedelta(hours=9)).strftime("%m%d%H%M")
-name = str(TrainingArguments.num_train_epochs) + "_" + ModelArguments.model_name_or_path + "_" + k_time
-wandb.init(project="MRC", entity="ecl-mlstudy", name=name)
 
 
 def train(model_args, data_args, training_args):
@@ -35,6 +32,10 @@ def train(model_args, data_args, training_args):
         datefmt="%m/%d/%Y %H:%M:%S",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
+
+    kor_time = (datetime.now() + timedelta(hours=9)).strftime("%m%d%H%M")
+    name = model_args.model_name_or_path + "_" + str(training_args.num_train_epochs) + "_" + kor_time
+    wandb.init(project="MRC", entity="ecl-mlstudy", name=name)
 
     # verbosity 설정 : Transformers logger의 정보로 사용합니다 (on main process only)
     logger.info("Training/evaluation parameters %s", training_args)
