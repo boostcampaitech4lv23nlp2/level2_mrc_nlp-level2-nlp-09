@@ -2,25 +2,30 @@ from typing import Optional
 
 from dataclasses import dataclass, field
 
+import yaml
 from transformers import TrainingArguments
+from yaml.loader import SafeLoader
+
+with open("./src/config/config.yml") as f:
+    data = yaml.load(f, Loader=SafeLoader)
 
 
 def get_training_args(
-    output_dir="./results",
-    save_total_limit=5,
-    save_strategy="epoch",
-    num_train_epochs=1,
-    learning_rate=5e-5,
-    per_device_train_batch_size=8,
-    per_device_eval_batch_size=8,
-    warmup_steps=0,
-    weight_decay=0.01,
-    logging_dir="./logs",
-    logging_steps=100,
-    evaluation_strategy="epoch",
-    do_train=True,
-    do_eval=True,
-    do_predict=False,
+    output_dir=data["output_dir"],
+    save_total_limit=data["save_total_limit"],
+    save_strategy=data["save_strategy"],
+    num_train_epochs=data["num_train_epochs"],
+    learning_rate=data["learning_rate"],
+    per_device_train_batch_size=data["per_device_train_batch_size"],
+    per_device_eval_batch_size=data["per_device_eval_batch_size"],
+    warmup_steps=data["warmup_steps"],
+    weight_decay=data["weight_decay"],
+    logging_dir=data["logging_dir"],
+    logging_steps=data["logging_steps"],
+    evaluation_strategy=data["evaluation_strategy"],
+    do_train=data["do_train"],
+    do_eval=data["do_eval"],
+    do_predict=data["do_predict"],
 ):
     training_args = TrainingArguments(
         output_dir=output_dir,  # output directory
@@ -49,15 +54,15 @@ class ModelArguments:
     """
 
     model_name_or_path: str = field(
-        default="klue/bert-base",
+        default=data["model_name_or_path"],
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"},
     )
     config_name: Optional[str] = field(
-        default=None,
+        default=data["config_name"],
         metadata={"help": "Pretrained config name or path if not the same as model_name"},
     )
     tokenizer_name: Optional[str] = field(
-        default=None,
+        default=data["tokenizer_name"],
         metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"},
     )
 
@@ -69,26 +74,26 @@ class DataTrainingArguments:
     """
 
     dataset_name: Optional[str] = field(
-        default="data/train_dataset",
+        default=data["dataset_name"],
         metadata={"help": "The name of the dataset to use."},
     )
     overwrite_cache: bool = field(
-        default=False,
+        default=data["overwrite_cache"],
         metadata={"help": "Overwrite the cached training and evaluation sets"},
     )
     preprocessing_num_workers: Optional[int] = field(
-        default=None,
+        default=data["preprocessing_num_workers"],
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
     max_seq_length: int = field(
-        default=384,
+        default=data["max_seq_length"],
         metadata={
             "help": "The maximum total input sequence length after tokenization. Sequences longer "
             "than this will be truncated, sequences shorter will be padded."
         },
     )
     pad_to_max_length: bool = field(
-        default=False,
+        default=data["pad_to_max_length"],
         metadata={
             "help": "Whether to pad all samples to `max_seq_length`. "
             "If False, will pad the samples dynamically when batching to the maximum length in the batch (which can "
@@ -96,23 +101,25 @@ class DataTrainingArguments:
         },
     )
     doc_stride: int = field(
-        default=128,
+        default=data["doc_stride"],
         metadata={"help": "When splitting up a long document into chunks, how much stride to take between chunks."},
     )
     max_answer_length: int = field(
-        default=30,
+        default=data["max_answer_length"],
         metadata={
             "help": "The maximum length of an answer that can be generated. This is needed because the start "
             "and end predictions are not conditioned on one another."
         },
     )
     eval_retrieval: bool = field(
-        default=True,
+        default=data["eval_retrieval"],
         metadata={"help": "Whether to run passage retrieval using sparse embedding."},
     )
-    num_clusters: int = field(default=64, metadata={"help": "Define how many clusters to use for faiss."})
+    num_clusters: int = field(
+        default=data["num_clusters"], metadata={"help": "Define how many clusters to use for faiss."}
+    )
     top_k_retrieval: int = field(
-        default=10,
+        default=data["top_k_retrieval"],
         metadata={"help": "Define how many top-k passages to retrieve based on similarity."},
     )
-    use_faiss: bool = field(default=False, metadata={"help": "Whether to build with faiss"})
+    use_faiss: bool = field(default=data["use_faiss"], metadata={"help": "Whether to build with faiss"})
