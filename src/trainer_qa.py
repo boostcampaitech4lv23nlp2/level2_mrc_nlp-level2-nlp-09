@@ -12,27 +12,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-Question-Answering task와 관련된 'Trainer'의 subclass 코드 입니다.
-"""
+from transformers import Trainer, is_datasets_available
 
-from transformers import Trainer, is_datasets_available, is_torch_tpu_available
-from transformers.trainer_utils import PredictionOutput
+from .postprocess import post_processing_function
 
 if is_datasets_available():
     import datasets
 
-if is_torch_tpu_available():
-    import torch_xla.core.xla_model as xm
-    import torch_xla.debug.metrics as met
-
 
 # Huggingface의 Trainer를 상속받아 QuestionAnswering을 위한 Trainer를 생성합니다.
 class QuestionAnsweringTrainer(Trainer):
-    def __init__(self, *args, eval_examples=None, post_process_function=None, **kwargs):
+    def __init__(self, *args, eval_examples=None, data_args=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.eval_examples = eval_examples
-        self.post_process_function = post_process_function
+        self.post_process_function = post_processing_function
+        self.data_args = data_args
 
     def evaluate(self, eval_dataset=None, eval_examples=None, ignore_keys=None):
         eval_dataset = self.eval_dataset if eval_dataset is None else eval_dataset
@@ -60,17 +54,19 @@ class QuestionAnsweringTrainer(Trainer):
                 columns=list(eval_dataset.features.keys()),
             )
 
-        if self.post_process_function is not None and self.compute_metrics is not None:
-            eval_preds = self.post_process_function(eval_examples, eval_dataset, output.predictions, self.args)
+        if (
+            self.post_process_function is not None
+            and self.compute_metrics is not None
+            and self.args.do_predict is False
+        ):
+            eval_preds = self.post_process_function(
+                eval_examples, eval_dataset, output.predictions, self.args, self.data_args
+            )
             metrics = self.compute_metrics(eval_preds)
 
             self.log(metrics)
         else:
             metrics = {}
-
-        if self.args.tpu_metrics_debug or self.args.debug:
-            # tpu-comment: PyTorch/XLA에 대한 Logging debug metrics (compile, execute times, ops, etc.)
-            xm.master_print(met.metrics_report())
 
         self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, metrics)
         return metrics
@@ -103,5 +99,7 @@ class QuestionAnsweringTrainer(Trainer):
                 columns=list(test_dataset.features.keys()),
             )
 
-        predictions = self.post_process_function(test_examples, test_dataset, output.predictions, self.args)
+        predictions = self.post_process_function(
+            test_examples, test_dataset, output.predictions, self.args, self.data_args
+        )
         return predictions
