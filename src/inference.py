@@ -2,7 +2,6 @@ from typing import Callable, Dict, List, NoReturn
 
 import logging
 import sys
-from datetime import datetime, timedelta
 
 from datasets import Dataset, DatasetDict, load_from_disk, load_metric
 from transformers import (
@@ -14,8 +13,6 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
-
-import wandb
 
 from .preprocess import PreProcessor
 from .retrieval import SparseRetrieval
@@ -41,18 +38,6 @@ def inference(model_args, data_args, training_args):
         datefmt="%m/%d/%Y %H:%M:%S",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
-
-    kor_time = (datetime.now() + timedelta(hours=9)).strftime("%m%d%H%M")
-    name = (
-        "Inference_"
-        + model_args.model_name_or_path
-        + "_"
-        + str(training_args.num_train_epochs)
-        + "_"
-        + "Faiss_"
-        + kor_time
-    )
-    wandb.init(project="MRC", entity="ecl-mlstudy", name=name)
 
     # verbosity 설정 : Transformers logger의 정보로 사용합니다 (on main process only)
     logger.info("Training/evaluation parameters %s", training_args)
@@ -155,8 +140,6 @@ def run_mrc(
     if training_args.do_eval:
         metrics = trainer.evaluate()
         metrics["eval_samples"] = len(eval_dataset)
-
-        wandb.log(metrics)
 
         trainer.log_metrics("test", metrics)
         trainer.save_metrics("test", metrics)
