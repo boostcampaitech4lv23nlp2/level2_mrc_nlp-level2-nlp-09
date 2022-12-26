@@ -34,7 +34,7 @@ def train(model_args, data_args, training_args):
     )
 
     kor_time = (datetime.now() + timedelta(hours=9)).strftime("%m%d%H%M")
-    name = model_args.model_name_or_path + "_" + str(training_args.num_train_epochs) + "_" + kor_time
+    name = model_args.model_name_or_path + "_" + str(training_args.num_train_epochs) + "_" + "Faiss_" + kor_time
     wandb.init(project="MRC", entity="ecl-mlstudy", name=name)
 
     # verbosity 설정 : Transformers logger의 정보로 사용합니다 (on main process only)
@@ -116,7 +116,7 @@ def run_mrc(
             stride=data_args.doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            # return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
+            return_token_type_ids=False,  # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
             padding="max_length" if data_args.pad_to_max_length else False,
         )
 
