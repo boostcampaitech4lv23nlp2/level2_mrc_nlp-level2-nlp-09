@@ -7,3 +7,4 @@ scikit-learn
 faiss-gpu
 numpy>=1.20.
 wandb==0.13.7
+rank_bm25
