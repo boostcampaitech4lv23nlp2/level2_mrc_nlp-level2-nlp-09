@@ -126,4 +126,5 @@ class DataTrainingArguments:
         default=data["top_k_retrieval"],
         metadata={"help": "Define how many top-k passages to retrieve based on similarity."},
     )
-    use_faiss: bool = field(default=data["use_faiss"], metadata={"help": "Whether to build with faiss"})
+    use_faiss: bool = (field(default=False, metadata={"help": "Whether to build with faiss"}),)
+    use_bm25: bool = field(default=False, metadata={"help": "Whether to use BM25"})

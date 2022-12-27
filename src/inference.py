@@ -15,7 +15,7 @@ from transformers import (
 )
 
 from .preprocess import PreProcessor
-from .retrieval import SparseRetrieval
+from .retrieval import BM25, SparseRetrieval
 from .trainer_qa import QuestionAnsweringTrainer
 from .utils import DataTrainingArguments, ModelArguments
 
@@ -86,15 +86,20 @@ def run_sparse_retrieval(
 ) -> DatasetDict:
 
     # Query에 맞는 Passage들을 Retrieval 합니다.
-    retriever = SparseRetrieval(tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path)
+    # bm25 사용
+    if data_args.use_bm25:
+        retriever = BM25(tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path)
+
+    else:
+        retriever = SparseRetrieval(tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path)
     retriever.get_sparse_embedding()
 
-    if data_args.use_faiss:
-        retriever.build_faiss(num_clusters=data_args.num_clusters)
-        df = retriever.retrieve_faiss(datasets["validation"], topk=data_args.top_k_retrieval)
-    else:
-        df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
-
+    # if data_args.use_faiss:
+    #     retriever.build_faiss(num_clusters=data_args.num_clusters)
+    #     df = retriever.retrieve_faiss(datasets["validation"], topk=data_args.top_k_retrieval)
+    # else:
+    #     df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+    df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
     datasets = DatasetDict({"validation": Dataset.from_pandas(df)})
     return datasets
 
