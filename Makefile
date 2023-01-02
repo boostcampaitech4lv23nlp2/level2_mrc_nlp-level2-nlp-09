@@ -4,6 +4,7 @@ style: set-style-dep set-style
 setup: set-precommit set-style-dep set-test-dep set-git set-dev set-dataset
 test: set-test-dep set-test
 coverage: check-coverage
+profile: check-profile
 
 
 ##### basic #####
@@ -66,3 +67,5 @@ check-coverage:
 	coverage run -m unittest
 	coverage report -m
 
+check-profile:
+	python tests/profile_retrieval.py
