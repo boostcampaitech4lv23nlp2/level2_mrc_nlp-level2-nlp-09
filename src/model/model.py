@@ -3,7 +3,7 @@ from transformers import BertModel, BertPreTrainedModel
 
 class BertEncoder(BertPreTrainedModel):
     def __init__(self, config):
-        super(BertEncoder, self).__init__()
+        super(BertEncoder, self).__init__(config)
 
         self.bert = BertModel(config)
         self.init_weights()

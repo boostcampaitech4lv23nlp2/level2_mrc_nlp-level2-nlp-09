@@ -12,13 +12,14 @@ class CustomDataset(Dataset):
         self,
         dataset,
         bm25_dataset,
+        tokenizer,
         data_path: Optional[str] = "../data/",
         context_path: Optional[str] = "wikipedia_documents.json",
     ):
         self.dataset = dataset
         self.bm25_dataset = bm25_dataset
 
-        preprocess_data = self.preprocess_train()
+        preprocess_data = self.preprocess_train(tokenizer)
 
         self.p_input_ids = preprocess_data[0]
         self.p_attension_mask = preprocess_data[1]
@@ -31,11 +32,6 @@ class CustomDataset(Dataset):
         self.q_input_ids = preprocess_data[6]
         self.q_attension_mask = preprocess_data[7]
         self.q_token_type_ids = preprocess_data[8]
-
-        with open(os.path.join(data_path, context_path), "r", encoding="utf-8") as f:
-            wiki = json.load(f)
-
-        self.contexts = list(dict.fromkeys([v["text"] for v in wiki.values()]))
 
     def __len__(self):
         return self.p_input_ids.size()[0]
@@ -54,8 +50,15 @@ class CustomDataset(Dataset):
         )
 
     def preprocess_train(
-        self, data_path: Optional[str] = "../data/", context_path: Optional[str] = "wikipedia_documents.json"
+        self, tokenizer, data_path: Optional[str] = "../data/", context_path: Optional[str] = "wikipedia_documents.json"
     ):
+
+        self.tokenizer = tokenizer
+
+        with open(os.path.join(data_path, context_path), "r", encoding="utf-8") as f:
+            wiki = json.load(f)
+
+        self.contexts = list(dict.fromkeys([v["text"] for v in wiki.values()]))
 
         dataset = self.dataset.to_pandas()
         num_neg = 2

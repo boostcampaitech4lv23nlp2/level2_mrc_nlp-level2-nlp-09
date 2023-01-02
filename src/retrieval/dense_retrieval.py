@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset, TensorDataset
+from torch.utils.data import DataLoader, Dataset, RandomSampler, TensorDataset
 from tqdm.auto import tqdm
 from transformers import AdamW, get_linear_schedule_with_warmup
 
@@ -49,28 +49,39 @@ class DenseRetrieval:
 
         self.tokenized_examples = defaultdict(list)
 
-    def train(self, p_encoder, q_encoder):
+    def train(self, train_dataset, valid_dataset, p_encoder, q_encoder):
+
         args = self.args
-        batch_size = self.batch_size
+        self.train_dataset = train_dataset
+        self.valid_dataset = valid_dataset
+
+        train_sampler = RandomSampler(self.train_dataset)
+        self.train_dataloader = DataLoader(
+            self.train_dataset,
+            sampler=train_sampler,
+            batch_size=args.per_device_train_batch_size,
+            drop_last=True,
+        )
+        self.valid_dataloader = DataLoader(self.valid_dataset, batch_size=args.per_device_eval_batch_size)
         num_neg = self.num_neg
 
         # Optimizer
         no_decay = ["bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
             {
-                "params": [p for n, p in self.p_encoder.named_parameters() if not any(nd in n for nd in no_decay)],
+                "params": [p for n, p in p_encoder.named_parameters() if not any(nd in n for nd in no_decay)],
                 "weight_decay": args.weight_decay,
             },
             {
-                "params": [p for n, p in self.p_encoder.named_parameters() if any(nd in n for nd in no_decay)],
+                "params": [p for n, p in p_encoder.named_parameters() if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0,
             },
             {
-                "params": [p for n, p in self.q_encoder.named_parameters() if not any(nd in n for nd in no_decay)],
+                "params": [p for n, p in q_encoder.named_parameters() if not any(nd in n for nd in no_decay)],
                 "weight_decay": args.weight_decay,
             },
             {
-                "params": [p for n, p in self.q_encoder.named_parameters() if any(nd in n for nd in no_decay)],
+                "params": [p for n, p in q_encoder.named_parameters() if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0,
             },
         ]
@@ -89,11 +100,18 @@ class DenseRetrieval:
 
         train_iterator = tqdm(range(int(args.num_train_epochs)), desc="Epoch")
         # for _ in range(int(args.num_train_epochs)):
+
+        best_loss = 9999  # valid_loss를 저장하는 변수
+        num_epoch = 0
         for _ in train_iterator:
+
+            train_loss = 0
+            train_acc = 0
+            train_step = 0
 
             with tqdm(self.train_dataloader, unit="batch") as tepoch:
                 for batch in tepoch:
-
+                    train_step += 1
                     p_encoder.train()
                     q_encoder.train()
 
@@ -133,99 +151,84 @@ class DenseRetrieval:
                         q_outputs, torch.transpose(p_outputs, 0, 1)
                     )  # (batch_size, emb_dim) x (emb_dim, batch_size * 2) = (batch_size, batch_size * 2)
 
-                    targets = torch.zeros(batch_size).long()  # positive example은 전부 첫 번째에 위치하므로
-                    targets = targets.to(args.device)
+                    # 정답은 대각선의 성분들 -> 0 1 2 ... batch_size - 1
+                    targets = torch.arange(0, args.per_device_train_batch_size).long()
+                    if torch.cuda.is_available():
+                        targets = targets.to("cuda")
 
-                    p_inputs = {
-                        "input_ids": batch[0].view(batch_size * (self.num_neg + 1), -1).to(args.device),
-                        "attention_mask": batch[1].view(batch_size * (self.num_neg + 1), -1).to(args.device),
-                        "token_type_ids": batch[2].view(batch_size * (self.num_neg + 1), -1).to(args.device),
-                    }
-                    q_inputs = {
-                        "input_ids": batch[3].to(args.device),
-                        "attention_mask": batch[4].to(args.device),
-                        "token_type_ids": batch[5].to(args.device),
-                    }
-
-                    p_outputs = self.p_encoder(**p_inputs)  # (batch_size*(num_neg+1), emb_dim)
-                    q_outputs = self.q_encoder(**q_inputs)  # (batch_size*, emb_dim)
-
-                    # Calculate similarity score & loss
-                    p_outputs = p_outputs.view(batch_size, self.num_neg + 1, -1)
-                    q_outputs = q_outputs.view(batch_size, 1, -1)
-
-                    sim_scores = torch.bmm(
-                        q_outputs, torch.transpose(p_outputs, 1, 2)
-                    ).squeeze()  # (batch_size, num_neg + 1)
-                    sim_scores = sim_scores.view(batch_size, -1)
                     sim_scores = F.log_softmax(sim_scores, dim=1)
-
                     loss = F.nll_loss(sim_scores, targets)
-                    tepoch.set_postfix(loss=f"{str(loss.item())}")
+                    train_loss += loss.item()
+
+                    _, preds = torch.max(sim_scores, 1)  #
+                    train_acc += torch.sum(preds.cpu() == targets.cpu()) / args.per_device_train_batch_size
 
                     loss.backward()
                     optimizer.step()
                     scheduler.step()
-
-                    self.p_encoder.zero_grad()
-                    self.q_encoder.zero_grad()
-
+                    q_encoder.zero_grad()
+                    p_encoder.zero_grad()
                     global_step += 1
+                    # validation
+                    if train_step % 247 == 0:
+                        valid_loss = 0
+                        valid_acc = 0
+                        v_epoch_iterator = tqdm(self.valid_dataloader, desc="Iteration")
+                        for step, batch in enumerate(v_epoch_iterator):
+                            with torch.no_grad():
+                                q_encoder.eval()
+                                p_encoder.eval()
 
-                    torch.cuda.empty_cache()
+                                cur_batch_size = batch[0].size()[0]
+                                # 마지막 배치의 drop last를 안하기 때문에 단순 batch_size를 사용하면 에러발생
+                                if torch.cuda.is_available():
+                                    batch = tuple(t.cuda() for t in batch)
+                                p_inputs = {
+                                    "input_ids": batch[0],
+                                    "attention_mask": batch[1],
+                                    "token_type_ids": batch[2],
+                                }
 
-                    del p_inputs, q_inputs
+                                q_inputs = {
+                                    "input_ids": batch[6],
+                                    "attention_mask": batch[7],
+                                    "token_type_ids": batch[8],
+                                }
+                                p_outputs = p_encoder(**p_inputs)
+                                q_outputs = q_encoder(**q_inputs)
 
-            self.p_encoder.eval()
-            self.q_encoder.eval()
-            outputs = torch.zeros((batch_size, 768), device=args.device)
+                                sim_scores = torch.matmul(q_outputs, torch.transpose(p_outputs, 0, 1))
+                                targets = torch.arange(0, cur_batch_size).long()
+                                if torch.cuda.is_available():
+                                    targets = targets.to("cuda")
 
-            with torch.no_grad():
+                                sim_scores = F.log_softmax(sim_scores, dim=1)
+                                loss = F.nll_loss(sim_scores, targets)
 
-                with tqdm(self.valid_dataloader, unit="batch") as tepoch:
+                                _, preds = torch.max(sim_scores, 1)  #
+                                valid_acc += torch.sum(preds.cpu() == targets.cpu()) / cur_batch_size
 
-                    for batch in tepoch:
+                                valid_loss += loss
+                        valid_loss = valid_loss / len(self.valid_dataloader)
+                        valid_acc = valid_acc / len(self.valid_dataloader)
 
-                        p_inputs = {
-                            "input_ids": batch[0].to(args.device),
-                            "attention_mask": batch[1].to(args.device),
-                            "token_type_ids": batch[2].to(args.device),
-                        }
+                        print()
+                        print(f"valid loss: {valid_loss}")
+                        print(f"valid acc: {valid_acc}")
+                        if best_loss > valid_loss:
+                            # valid_loss가 작아질 때만 저장하고 best_loss와 best_acc를 업데이트
+                            # acc에 대해서도 가능합니다.
+                            print("best model save")
+                            p_encoder.save_pretrained(args.output_dir + "/p_encoder")
+                            q_encoder.save_pretrained(args.output_dir + "/q_encoder")
+                            best_loss = valid_loss
 
-                        outputs = torch.cat([outputs, self.p_encoder(**p_inputs)])
+                num_epoch += 1
+                train_loss = train_loss / len(self.train_dataloader)
+                train_acc = train_acc / len(self.train_dataloader)
 
-                    outputs = outputs[batch_size:]
-
-                    corrected_prediction = 0
-                    for idx, batch in enumerate(tepoch):
-
-                        q_inputs = {
-                            "input_ids": batch[3].to(args.device),
-                            "attention_mask": batch[4].to(args.device),
-                            "token_type_ids": batch[5].to(args.device),
-                        }
-
-                        if batch[0].size(0) == batch_size:
-                            targets = torch.LongTensor(
-                                list(range(batch_size * idx + batch_size - batch_size, batch_size * idx + batch_size))
-                            )
-                        else:
-                            targets = torch.LongTensor(
-                                list(
-                                    range(
-                                        batch_size * idx + batch_size - batch_size, len(self.valid_dataloader.dataset)
-                                    )
-                                )
-                            )
-
-                        q_logits = self.q_encoder(**q_inputs)
-                        scores = torch.mm(q_logits, outputs.permute(1, 0))
-                        corrected_prediction += sum(torch.argmax(scores, dim=1).cpu() == targets).item()
-
-                    print(f"valid 정확도 : {corrected_prediction / len(self.valid_dataloader.dataset) * 100}%")
-
-        torch.save(self.p_encoder, "../encoder/p_encoder.pt")
-        torch.save(self.q_encoder, "../encoder/q_encoder.pt")
+                print(f"train loss: {train_loss}")
+                print(f"train acc: {train_acc}")
 
     def get_relevant_doc(self, query, k=1, args=None, p_encoder=None, q_encoder=None):
 
@@ -337,7 +340,7 @@ class DenseRetrieval:
         return doc_scores, doc_indices
 
     def retrieve(
-        self, query_or_dataset: Union[str, Dataset], topk: Optional[int] = 1
+        self, p_encoder, q_encoder, query_or_dataset: Union[str, Dataset], topk: Optional[int] = 1
     ) -> Union[Tuple[List, List], pd.DataFrame]:
 
         """
@@ -375,7 +378,9 @@ class DenseRetrieval:
             # Retrieve한 Passage를 pd.DataFrame으로 반환합니다.
             total = []
             with timer("query exhaustive search"):
-                doc_scores, doc_indices = self.get_relevant_doc(query_or_dataset["question"], k=topk)
+                doc_scores, doc_indices = self.get_relevant_doc(
+                    query_or_dataset["question"], k=topk, p_encoder=p_encoder, q_encoder=q_encoder
+                )
             for idx, example in enumerate(tqdm(query_or_dataset, desc="Sparse retrieval: ")):
                 tmp = {
                     # Query와 해당 id를 반환합니다.

@@ -6,7 +6,7 @@ import yaml
 from transformers import TrainingArguments
 from yaml.loader import SafeLoader
 
-with open("../src/config/config.yml") as f:
+with open("./src/config/config.yml") as f:
     data = yaml.load(f, Loader=SafeLoader)
 
 

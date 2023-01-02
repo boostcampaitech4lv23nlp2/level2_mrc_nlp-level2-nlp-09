@@ -10,7 +10,6 @@ from typing import Callable, Dict, List
 import logging
 import sys
 
-import torch
 from datasets import Dataset, DatasetDict, load_from_disk, load_metric
 from transformers import (
     AutoConfig,
@@ -22,6 +21,7 @@ from transformers import (
     set_seed,
 )
 
+from .model.model import BertEncoder
 from .preprocess import PreProcessor
 from .retrieval.bm25_retrieval import BM25Retrieval
 from .retrieval.dense_retrieval import DenseRetrieval
@@ -83,7 +83,12 @@ def inference(model_args, data_args, training_args):
             data_args,
         )
     elif data_args.eval_retrieval and model_args.dpr:
+        tokenizer = AutoTokenizer.from_pretrained("kykim/bert-kor-base")
         datasets = run_dense_retrieval(tokenizer, datasets, training_args, data_args)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+            use_fast=True,
+        )
     else:
         datasets = run_sparse_retrieval(
             tokenizer.tokenize,
@@ -149,16 +154,14 @@ def run_dense_retrieval(
     context_path: str = "wikipedia_documents.json",
 ) -> DatasetDict:
 
-    p_encoder = torch.load("./encoder/p_encoder.pt")
-    q_encoder = torch.load("./encoder/q_encoder.pt")
+    p_encoder = BertEncoder.from_pretrained(training_args.output_dir + "/p_encoder")
+    q_encoder = BertEncoder.from_pretrained(training_args.output_dir + "/q_encoder")
     # Query에 맞는 Passage들을 Retrieval 합니다.
     retriever = DenseRetrieval(
         training_args,
         datasets,
         tokenizer,
         data_args.num_neg,
-        p_encoder,
-        q_encoder,
         data_path=data_path,
         context_path=context_path,
     )
@@ -167,7 +170,7 @@ def run_dense_retrieval(
         retriever.build_faiss(num_clusters=data_args.num_clusters)
         df = retriever.retrieve_faiss(datasets["validation"], topk=data_args.top_k_retrieval)
     else:
-        df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+        df = retriever.retrieve(p_encoder, q_encoder, datasets["validation"], topk=data_args.top_k_retrieval)
 
     datasets = DatasetDict({"validation": Dataset.from_pandas(df)})
     return datasets
