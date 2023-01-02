@@ -6,7 +6,7 @@ import yaml
 from transformers import TrainingArguments
 from yaml.loader import SafeLoader
 
-with open("./src/config/config.yml") as f:
+with open("../src/config/config.yml") as f:
     data = yaml.load(f, Loader=SafeLoader)
 
 
@@ -69,6 +69,8 @@ class ModelArguments:
         default=data["tokenizer_name"],
         metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"},
     )
+    dpr: bool = field(default=data["dpr"])
+    bm25: bool = field(default=data["bm25"])
 
 
 @dataclass
@@ -126,4 +128,5 @@ class DataTrainingArguments:
         default=data["top_k_retrieval"],
         metadata={"help": "Define how many top-k passages to retrieve based on similarity."},
     )
-    use_faiss: bool = field(default=data["use_faiss"], metadata={"help": "Whether to build with faiss"})
+    use_faiss: bool = (field(default=data["use_faiss"], metadata={"help": "Whether to build with faiss"}),)
+    num_neg: int = field(default=data["num_neg"])

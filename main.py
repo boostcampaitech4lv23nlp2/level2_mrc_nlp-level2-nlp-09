@@ -1,10 +1,12 @@
+import sys
+
 from transformers import HfArgumentParser
 
 from src import inference, train
 from src.utils import DataTrainingArguments, ModelArguments, get_training_args
 
 if __name__ == "__main__":
-
+    sys.path.insert(0, "./src")
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments))
     model_args, data_args = parser.parse_args_into_dataclasses()
     training_args = get_training_args()

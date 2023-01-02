@@ -1,10 +1,12 @@
 # ModelArguments
-model_name_or_path: "klue/roberta-large"
+model_name_or_path: output
 config_name: null
 tokenizer_name: null
+dpr: False
+bm25: True
 
 # DataTrainingArguments
-dataset_name: "data/train_dataset"
+dataset_name: "../data/train_dataset"
 overwrite_cache: False
 preprocessing_num_workers: null
 max_seq_length: 384
@@ -13,17 +15,18 @@ doc_stride: 128
 max_answer_length: 30
 eval_retrieval: True
 num_clusters: 64
-top_k_retrieval: 10
+top_k_retrieval: 100
 use_faiss: False
+num_neg: 2
 
 # TrainingArguments
-do_train: True
+do_train: False
 do_eval: True
-do_predict: False
+do_predict: True
 output_dir: "./output"
-learning_rate: 5.0e-05
-num_train_epochs: 1
-per_device_train_batch_size: 16
+learning_rate: 5.0e-5
+num_train_epochs: 10
+per_device_train_batch_size: 4
 per_device_eval_batch_size: 16
 save_total_limit: 5
 save_strategy: "epoch"
