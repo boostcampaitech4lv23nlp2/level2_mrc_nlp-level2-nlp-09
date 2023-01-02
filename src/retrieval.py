@@ -53,6 +53,7 @@ class SparseRetrieval:
         self.data_path = data_path
         with open(os.path.join(data_path, context_path), "r", encoding="utf-8") as f:
             wiki = json.load(f)
+        self.max_features = 50000
 
         self.contexts = list(dict.fromkeys([v["text"] for v in wiki.values()]))  # set 은 매번 순서가 바뀌므로
         print(f"Lengths of unique contexts : {len(self.contexts)}")
@@ -62,7 +63,7 @@ class SparseRetrieval:
         self.tfidfv = TfidfVectorizer(
             tokenizer=tokenize_fn,
             ngram_range=(1, 2),
-            max_features=50000,
+            max_features=self.max_features,
         )
 
         self.p_embedding = None  # get_sparse_embedding()로 생성합니다

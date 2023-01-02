@@ -1,5 +1,5 @@
 # ModelArguments
-model_name_or_path: "klue/roberta-large"
+model_name_or_path: "output"
 config_name: null
 tokenizer_name: null
 
@@ -22,7 +22,7 @@ do_eval: True
 do_predict: False
 output_dir: "./output"
 learning_rate: 5.0e-05
-num_train_epochs: 1
+num_train_epochs: 5
 per_device_train_batch_size: 16
 per_device_eval_batch_size: 16
 save_total_limit: 5
