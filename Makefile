@@ -3,6 +3,8 @@ quality: set-style-dep check-quality
 style: set-style-dep set-style
 setup: set-precommit set-style-dep set-test-dep set-git set-dev set-dataset
 test: set-test-dep set-test
+coverage: check-coverage
+profile: check-profile
 
 
 ##### basic #####
@@ -60,3 +62,10 @@ set-directory:
 	mkdir -p ./src/logs
 	mkdir -p ./src/best_model
 	mkdir -p ./src/results
+
+check-coverage:
+	coverage run -m unittest
+	coverage report -m
+
+check-profile:
+	python tests/profile_retrieval.py
