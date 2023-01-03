@@ -4,7 +4,7 @@ config_name: null
 tokenizer_name: null
 
 # DataTrainingArguments
-dataset_name: "data/train_dataset"
+dataset_name: "data/test_dataset"
 overwrite_cache: False
 preprocessing_num_workers: null
 max_seq_length: 384
@@ -17,9 +17,9 @@ top_k_retrieval: 10
 use_faiss: False
 
 # TrainingArguments
-do_train: True
+do_train: False
 do_eval: True
-do_predict: False
+do_predict: True
 output_dir: "./output"
 learning_rate: 5.0e-05
 num_train_epochs: 5

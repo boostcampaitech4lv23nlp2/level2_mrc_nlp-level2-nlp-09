@@ -1,0 +1,40 @@
+{
+  "citation": "",
+  "description": "",
+  "features": {
+    "question": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "id": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "context": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "original_context": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "answers": {
+      "answer_start": {
+        "feature": {
+          "dtype": "int64",
+          "_type": "Value"
+        },
+        "_type": "Sequence"
+      },
+      "text": {
+        "feature": {
+          "dtype": "string",
+          "_type": "Value"
+        },
+        "_type": "Sequence"
+      }
+    }
+  },
+  "homepage": "",
+  "license": ""
+}

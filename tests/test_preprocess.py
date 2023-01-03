@@ -87,8 +87,8 @@ class TestPreProcess(unittest.TestCase):
         preprocessor = PreProcessor(
             datasets=self.datasets, tokenizer=self.tokenizer, data_args=self.data_args, training_args=self.training_args
         )
-        train_dataset = preprocessor.get_eval_dataset()
-        self.assertEqual(list(train_dataset.features), ["input_ids", "attention_mask", "offset_mapping", "example_id"])
+        eval_dataset = preprocessor.get_eval_dataset()
+        self.assertEqual(list(eval_dataset.features), ["input_ids", "attention_mask", "offset_mapping", "example_id"])
 
     def test_get_column_names(self):
         test_training_args = copy.deepcopy(self.training_args)

@@ -151,3 +151,4 @@ output/
 data/
 wandb/
 nohup.out
+cache-*
