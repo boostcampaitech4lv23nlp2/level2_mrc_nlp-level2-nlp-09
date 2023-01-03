@@ -14,7 +14,7 @@ max_answer_length: 30
 eval_retrieval: True
 num_clusters: 64
 top_k_retrieval: 100
-use_faiss: False
+use_faiss: True
 
 # TrainingArguments
 do_train: False
