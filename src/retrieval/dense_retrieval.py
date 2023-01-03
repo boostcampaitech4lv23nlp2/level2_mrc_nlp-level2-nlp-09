@@ -2,7 +2,9 @@ from typing import List, Optional, Tuple, Union
 
 import json
 import os
+import pickle
 import random
+import re
 import time
 from collections import defaultdict
 from contextlib import contextmanager
@@ -12,7 +14,8 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset, RandomSampler, TensorDataset
+from datasets import Dataset
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 from tqdm.auto import tqdm
 from transformers import AdamW, get_linear_schedule_with_warmup
 
@@ -31,7 +34,7 @@ class DenseRetrieval:
         dataset,
         tokenizer,
         num_neg,
-        data_path: Optional[str] = "../data/",
+        data_path: Optional[str] = "./data/",
         context_path: Optional[str] = "wikipedia_documents.json",
     ):
 
@@ -40,14 +43,31 @@ class DenseRetrieval:
         self.num_neg = num_neg
         self.batch_size = args.per_device_train_batch_size
         self.tokenizer = tokenizer
+        self.num_neg = num_neg
 
-        self.data_path = data_path
         with open(os.path.join(data_path, context_path), "r", encoding="utf-8") as f:
-            wiki = json.load(f)
+            self.wiki = json.load(f)
 
-        self.contexts = list(dict.fromkeys([v["text"] for v in wiki.values()]))
+        new_wiki = {}
+        for i in range(len(self.wiki)):
+            key = str(i)
+            context = self.wiki[key]["text"]
+            self.wiki[key]["text"] = self.preprocess(context)
+            new_wiki[key] = self.wiki[key]
+
+        self.contexts = list(dict.fromkeys([v["text"] for v in new_wiki.values()]))
+        self.wiki_context_id_dict = {v["text"]: v["document_id"] for v in new_wiki.values()}
+        self.wiki_id_context_dict = {v["document_id"]: v["text"] for v in new_wiki.values()}
 
         self.tokenized_examples = defaultdict(list)
+
+    def preprocess(self, text):
+        text = re.sub(r"\n", " ", text)
+        text = re.sub(r"\\n", " ", text)  # remove newline character
+        text = re.sub(r"\s+", " ", text)  # remove continuous spaces
+        text = re.sub(r"#", " ", text)
+
+        return text
 
     def train(self, train_dataset, valid_dataset, p_encoder, q_encoder):
 
@@ -232,112 +252,100 @@ class DenseRetrieval:
 
     def get_relevant_doc(self, query, k=1, args=None, p_encoder=None, q_encoder=None):
 
-        if args is None:
-            args = self.args
+        eval_batch_size = 32
 
-        if p_encoder is None:
-            p_encoder = self.p_encoder
+        p_encoder.cuda()
+        q_encoder.cuda()
 
-        if q_encoder is None:
-            q_encoder = self.q_encoder
-
-        with torch.no_grad():
-            p_encoder.eval()
-            q_encoder.eval()
-
-            if os.path.isfile("./data/preprocessed.json"):
-                with open("./data/preprocessed.json", "r") as f:
-                    self.tokenized_examples = json.load(f)
-
-                    self.tokenized_examples["input_ids"] = torch.tensor(self.tokenized_examples["input_ids"])
-                    self.tokenized_examples["token_type_ids"] = torch.tensor(self.tokenized_examples["token_type_ids"])
-                    self.tokenized_examples["attention_mask"] = torch.tensor(self.tokenized_examples["attention_mask"])
-            else:
-
-                for context in self.contexts:
-                    tokenized_example = self.tokenizer(
-                        context,
-                        truncation=True,
-                        max_length=512,
-                        padding="max_length",
-                    )
-                    self.tokenized_examples["input_ids"].append(tokenized_example["input_ids"])
-                    self.tokenized_examples["token_type_ids"].append(tokenized_example["token_type_ids"])
-                    self.tokenized_examples["attention_mask"].append(tokenized_example["attention_mask"])
-
-                with open("./data/preprocessed.json", "w") as f:
-                    json.dump(self.tokenized_examples, f)
-
-                with open("./data/preprocessed.json", "r") as f:
-                    self.tokenized_examples = json.load(f)
-                    self.tokenized_examples["input_ids"] = torch.tensor(self.tokenized_examples["input_ids"])
-                    self.tokenized_examples["token_type_ids"] = torch.tensor(self.tokenized_examples["token_type_ids"])
-                    self.tokenized_examples["attention_mask"] = torch.tensor(self.tokenized_examples["attention_mask"])
-
-            q_seqs = self.tokenizer(query, truncation=True, max_length=512, padding="max_length", return_tensors="pt")
+        if os.path.isfile("./data/embedding.bin"):
+            with open("./data/embedding.bin", "rb") as f:
+                self.p_embs = pickle.load(f)
+        else:
+            self.tokenized_example = self.tokenizer(
+                self.contexts, truncation=True, max_length=512, padding="max_length", return_tensors="pt"
+            )
 
             p_seqs = TensorDataset(
-                self.tokenized_examples["input_ids"],
-                self.tokenized_examples["token_type_ids"],
-                self.tokenized_examples["attention_mask"],
+                self.tokenized_example["input_ids"],
+                self.tokenized_example["token_type_ids"],
+                self.tokenized_example["attention_mask"],
             )
-            p_seqs = DataLoader(p_seqs, batch_size=32, shuffle=False)
-
-            q_seqs = TensorDataset(q_seqs["input_ids"], q_seqs["token_type_ids"], q_seqs["attention_mask"])
-            q_seqs = DataLoader(q_seqs, batch_size=32, shuffle=False)
+            sampler = SequentialSampler(p_seqs)
+            dataloader = DataLoader(p_seqs, sampler=sampler, batch_size=eval_batch_size)
 
             p_embs = []
-            q_embs = []
 
-            p_encoder = p_encoder.to(args.device)
-            q_encoder = q_encoder.to(args.device)
+            with torch.no_grad():
 
-            if os.path.isfile("./data/embedding.npy"):
-                p_embs = np.load("./data/embedding.npy")
-                p_embs = torch.from_numpy(p_embs)
-            else:
-                p_embs = torch.zeros((32, 768))
-                p_embs = p_embs.to(args.device)
-                for batch in tqdm(p_seqs):
-                    batch = tuple(t.to(args.device) for t in batch)
-                    p_inputs = {"input_ids": batch[0], "attention_mask": batch[1], "token_type_ids": batch[2]}
-                    p_emb = p_encoder(**p_inputs)
-                    p_embs = torch.cat([p_embs, p_emb])
+                epoch_iterator = tqdm(dataloader, desc="Iteration", position=0, leave=True)
+                p_encoder.eval()
+                for _, batch in enumerate(tqdm(epoch_iterator)):
+                    batch = tuple(t.cuda() for t in batch)
+                    p_inputs = {
+                        "input_ids": batch[0],
+                        "attention_mask": batch[1],
+                        "token_type_ids": batch[2],
+                    }
+                    outputs = p_encoder(**p_inputs).to("cpu").numpy()
+                    p_embs.extend(outputs)
 
-                p_embs = p_embs.cpu().numpy()
-                p_embs = p_embs[32:]
-                np.save("./data/embedding.npy", p_embs)
+            torch.cuda.empty_cache()
+            p_embs = np.array(p_embs)
 
-                p_embs = np.load("./data/embedding.npy")
-                p_embs = torch.from_numpy(p_embs)
+            with open("./data/embedding.bin", "wb") as f:
+                pickle.dump(p_embs, f)
 
-            if os.path.isfile("./data/embeddings.npy"):
-                q_embs = np.load("./data/embeddings.npy")
-                q_embs = torch.from_numpy(q_embs)
-            else:
-                q_embs = torch.zeros((32, 768))
-                for batch in tqdm(q_seqs):
-                    batch = tuple(t.to(args.device) for t in batch)
-                    q_inputs = {"input_ids": batch[0], "attention_mask": batch[1], "token_type_ids": batch[2]}
-                    q_emb = q_encoder(**q_inputs).to("cpu")
-                    q_embs = torch.cat([q_embs, q_emb])
+        q_seqs = self.tokenizer(
+            query,
+            max_length=64,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt",
+        )
+        dataset = TensorDataset(q_seqs["input_ids"], q_seqs["attention_mask"], q_seqs["token_type_ids"])
+        query_sampler = SequentialSampler(dataset)
+        query_dataloader = DataLoader(dataset, sampler=query_sampler, batch_size=32)
+        q_embs = []
 
-                q_embs = q_embs.cpu().numpy()
-                q_embs = q_embs[32:]
-                np.save("./data/embeddings", q_embs)
+        with torch.no_grad():
 
-                q_embs = np.load("./data/embeddings.npy")
-                q_embs = torch.from_numpy(q_embs)
+            epoch_iterator = tqdm(query_dataloader, desc="Iteration", position=0, leave=True)
+            q_encoder.eval()
 
-        dot_prod_scores = torch.matmul(q_embs, torch.transpose(p_embs, 0, 1))
-        dot_prod_scores = np.array(dot_prod_scores)
-        doc_scores = []
-        doc_indices = []
-        for i in range(dot_prod_scores.shape[0]):
-            sorted_result = np.argsort(dot_prod_scores[i, :])[::-1]
-            doc_scores.append(dot_prod_scores[i, :][sorted_result].tolist()[:k])
-            doc_indices.append(sorted_result.tolist()[:k])
-        return doc_scores, doc_indices
+            for _, batch in enumerate(epoch_iterator):
+                batch = tuple(t.cuda() for t in batch)
+
+                q_inputs = {
+                    "input_ids": batch[0],
+                    "attention_mask": batch[1],
+                    "token_type_ids": batch[2],
+                }
+
+                outputs = q_encoder(**q_inputs).to("cpu").numpy()
+                q_embs.extend(outputs)
+        q_embs = np.array(q_embs)
+
+        if torch.cuda.is_available():
+            p_embs_cuda = torch.Tensor(self.p_embs).to("cuda")
+            q_embs_cuda = torch.Tensor(q_embs).to("cuda")
+        dot_prod_scores = torch.matmul(q_embs_cuda, torch.transpose(p_embs_cuda, 0, 1))
+        rank = torch.argsort(dot_prod_scores, dim=1, descending=True).squeeze()
+
+        query_ids = {}
+        query_scores = {}
+        idx = 0
+        for i in tqdm(range(len(query))):
+            p_list = []
+            scores = []
+            q = query[i]
+            for j in range(k):
+                p_list.append(self.wiki_context_id_dict[self.contexts[rank[idx][j]]])
+                scores.append(dot_prod_scores[idx][rank[idx][j]].item())
+            query_ids[q] = p_list
+            query_scores[q] = scores
+            idx += 1
+
+        return query_scores, query_ids
 
     def retrieve(
         self, p_encoder, q_encoder, query_or_dataset: Union[str, Dataset], topk: Optional[int] = 1
@@ -387,7 +395,7 @@ class DenseRetrieval:
                     "question": example["question"],
                     "id": example["id"],
                     # Retrieve한 Passage의 id, context를 반환합니다.
-                    "context": " ".join([self.contexts[pid] for pid in doc_indices[idx]]),
+                    "context": " ".join([self.wiki_id_context_dict[pid] for pid in doc_indices[example["question"]]]),
                 }
                 if "context" in example.keys() and "answers" in example.keys():
                     # validation 데이터를 사용하면 ground_truth context와 answer도 반환합니다.

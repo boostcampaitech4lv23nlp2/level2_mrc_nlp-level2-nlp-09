@@ -3,10 +3,10 @@ model_name_or_path: output
 config_name: null
 tokenizer_name: null
 dpr: True
-bm25: False
+bm25: True
 
 # DataTrainingArguments
-dataset_name: "./data/test_dataset"
+dataset_name: "../data/train_dataset"
 overwrite_cache: False
 preprocessing_num_workers: null
 max_seq_length: 384
@@ -15,13 +15,13 @@ doc_stride: 128
 max_answer_length: 30
 eval_retrieval: True
 num_clusters: 64
-top_k_retrieval: 100
+top_k_retrieval: 4
 use_faiss: False
 num_neg: 2
 
 # TrainingArguments
 do_train: False
-do_eval: True
+do_eval: False
 do_predict: True
 output_dir: "./output"
 learning_rate: 5.0e-5

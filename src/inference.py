@@ -23,6 +23,7 @@ from transformers import (
 
 from .model.model import BertEncoder
 from .preprocess import PreProcessor
+from .retrieval.bm25_dense_retrieval import BM25DenseRetrieval
 from .retrieval.bm25_retrieval import BM25Retrieval
 from .retrieval.dense_retrieval import DenseRetrieval
 from .retrieval.retrieval import SparseRetrieval
@@ -75,20 +76,29 @@ def inference(model_args, data_args, training_args):
 
     data_args.use_faiss = False
     # True일 경우 : run passage retrieval
-    if data_args.eval_retrieval and model_args.bm25:
+    if data_args.eval_retrieval and model_args.bm25 and not model_args.dpr:
         datasets = run_bm25_retrieval(
             tokenizer.tokenize,
             datasets,
             training_args,
             data_args,
         )
-    elif data_args.eval_retrieval and model_args.dpr:
+    elif data_args.eval_retrieval and model_args.dpr and not model_args.bm25:
         tokenizer = AutoTokenizer.from_pretrained("kykim/bert-kor-base")
         datasets = run_dense_retrieval(tokenizer, datasets, training_args, data_args)
         tokenizer = AutoTokenizer.from_pretrained(
             model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
             use_fast=True,
         )
+
+    elif data_args.eval_retrieval and model_args.dpr and model_args.bm25:
+        tokenizer = AutoTokenizer.from_pretrained("kykim/bert-kor-base")
+        datasets = run_bm25_dense_retrieval(tokenizer, datasets, training_args, data_args)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+            use_fast=True,
+        )
+
     else:
         datasets = run_sparse_retrieval(
             tokenizer.tokenize,
@@ -176,6 +186,36 @@ def run_dense_retrieval(
     return datasets
 
 
+def run_bm25_dense_retrieval(
+    tokenize_fn: Callable[[str], List[str]],
+    datasets: DatasetDict,
+    training_args: TrainingArguments,
+    data_args: DataTrainingArguments,
+    data_path: str = "data",
+    context_path: str = "wikipedia_documents.json",
+) -> DatasetDict:
+
+    q_encoder = BertEncoder.from_pretrained(training_args.output_dir + "/q_encoder")
+    retriever = BM25DenseRetrieval(
+        training_args,
+        datasets,
+        tokenize_fn,
+        data_args.num_neg,
+        q_encoder,
+        data_path=data_path,
+        context_path=context_path,
+    )
+
+    if data_args.use_faiss:
+        retriever.build_faiss(num_clusters=data_args.num_clusters)
+        df = retriever.retrieve_faiss(datasets["validation"], topk=data_args.top_k_retrieval)
+    else:
+        df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+
+    datasets = DatasetDict({"validation": Dataset.from_pandas(df)})
+    return datasets
+
+
 def run_mrc(
     data_args: DataTrainingArguments,
     training_args: TrainingArguments,
@@ -212,13 +252,6 @@ def run_mrc(
     )
 
     logger.info("*** Evaluate ***")
-
-    if training_args.do_eval:
-        metrics = trainer.evaluate()
-        metrics["eval_samples"] = len(eval_dataset)
-
-        trainer.log_metrics("test", metrics)
-        trainer.save_metrics("test", metrics)
 
     # eval dataset & eval example - predictions.json 생성됨
     if training_args.do_predict:

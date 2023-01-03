@@ -2,15 +2,18 @@ from typing import List, Optional, Tuple, Union
 
 import json
 import os
+import pickle
 import re
 import time
 from contextlib import contextmanager
 
-import numpy as np
 import pandas as pd
+import torch
 from datasets import Dataset
-from rank_bm25 import BM25Okapi
 from tqdm import tqdm
+
+from .bm25_retrieval import BM25Retrieval
+from .dense_retrieval import DenseRetrieval
 
 
 @contextmanager
@@ -20,36 +23,33 @@ def timer(name):
     print(f"[{name}] done in {time.time() - t0:.3f} s")
 
 
-class BM25Retrieval:
+class BM25DenseRetrieval:
     def __init__(
         self,
-        tokenize_fn,
-        data_path: Optional[str] = "./data/",
-        context_path: Optional[str] = "wikipedia_documents.json",
-    ) -> None:
+        args,
+        datasets,
+        tokenizer,
+        num_neg,
+        q_encoder,
+        data_path="./data/",
+        caching_path="caching/",
+        context_path="wikipedia_documents.json",
+    ):
 
-        """
-        Arguments:
-            tokenize_fn:
-                기본 text를 tokenize해주는 함수입니다.
-                아래와 같은 함수들을 사용할 수 있습니다.
-                - lambda x: x.split(' ')
-                - Huggingface Tokenizer
-                - konlpy.tag의 Mecab
+        self.args = args
+        self.datasets = datasets
+        self.tokenizer = tokenizer
+        self.num_neg = num_neg
 
-            data_path:
-                데이터가 보관되어 있는 경로입니다.
+        self.sparse_retrieval = BM25Retrieval(tokenize_fn=self.tokenizer.tokenize)
+        self.dense_retrieval = DenseRetrieval(args, datasets, tokenizer=tokenizer, num_neg=self.num_neg)
 
-            context_path:
-                Passage들이 묶여있는 파일명입니다.
+        self.q_encoder = q_encoder
+        with open("./data/embedding.bin", "rb") as f:
+            self.p_embs = pickle.load(f)
+        if torch.cuda.is_available():
+            self.p_embs = torch.Tensor(self.p_embs).to("cuda")
 
-            data_path/context_path가 존재해야합니다.
-
-        Summary:
-            Passage 파일을 불러오고 TfidfVectorizer를 선언하는 기능을 합니다.
-        """
-
-        self.data_path = data_path
         with open(os.path.join(data_path, context_path), "r", encoding="utf-8") as f:
             self.wiki = json.load(f)
 
@@ -60,13 +60,9 @@ class BM25Retrieval:
             self.wiki[key]["text"] = self.preprocess(context)
             new_wiki[key] = self.wiki[key]
 
-        self.contexts = list(dict.fromkeys([v["text"] for v in new_wiki.values()]))  # set 은 매번 순서가 바뀌므로
-        print(f"Lengths of unique contexts : {len(self.contexts)}")
-        self.ids = list(range(len(self.contexts)))
-
-        # Transform by vectorizer
-        self.bm25 = BM25Okapi(self.contexts, tokenize_fn)
-        self.tokenize_fn = tokenize_fn
+        self.contexts = list(dict.fromkeys([v["text"] for v in new_wiki.values()]))
+        self.wiki_context_id_dict = {v["text"]: v["document_id"] for v in new_wiki.values()}
+        self.wiki_id_context_dict = {v["document_id"]: v["text"] for v in new_wiki.values()}
 
     def preprocess(self, text):
         text = re.sub(r"\n", " ", text)
@@ -75,6 +71,49 @@ class BM25Retrieval:
         text = re.sub(r"#", " ", text)
 
         return text
+
+    def get_topk_doc_id_and_score(self, query, top_k):
+        es_score, es_id = self.sparse_retrieval.get_relevant_doc(query=query, k=top_k)
+        return self.__rerank(query, es_id, es_score)
+
+    def get_topk_doc_id_and_score_for_querys(self, querys, top_k):
+        hybrid_ids = {}
+        hybrid_scores = {}
+        for i in tqdm(range(len(querys))):
+            query = querys[i]
+            doc_ids, scores = self.get_topk_doc_id_and_score(query, top_k)
+            hybrid_ids[query] = doc_ids
+            hybrid_scores[query] = scores
+
+        return hybrid_ids, hybrid_scores
+
+    def __rerank(self, query, es_id, es_score):
+        p_embs = self.p_embs
+        with torch.no_grad():
+            self.q_encoder.cuda()
+            self.q_encoder.eval()
+            q_seqs_val = self.tokenizer(query, padding="max_length", truncation=True, return_tensors="pt").to("cuda")
+            q_emb = self.q_encoder(**q_seqs_val).to("cuda")
+        dot_prod_scores = torch.matmul(q_emb, torch.transpose(p_embs, 0, 1))
+        rank = torch.argsort(dot_prod_scores, dim=1, descending=True).squeeze()
+        rank = rank.cpu().numpy().tolist()
+
+        es_id_score = {self.wiki_context_id_dict[self.contexts[k]]: v for k, v in zip(es_id, es_score)}
+
+        hybrid_id_score = dict()
+
+        for i in rank:
+            dense_id = self.wiki_context_id_dict[self.contexts[i]]
+            if dense_id in es_id_score:
+                lin_score = dot_prod_scores[0][i].item() + es_id_score[dense_id]
+                hybrid_id_score[dense_id] = lin_score
+
+        hybrid_id_score = list(hybrid_id_score.items())
+        hybrid_id_score.sort(key=lambda x: x[1], reverse=True)
+        hybrid_ids = list(map(lambda x: x[0], hybrid_id_score))
+        hybrid_scores = list(map(lambda x: x[1], hybrid_id_score))
+
+        return hybrid_ids, hybrid_scores
 
     def retrieve(
         self, query_or_dataset: Union[str, Dataset], topk: Optional[int] = 1
@@ -101,7 +140,7 @@ class BM25Retrieval:
         """
 
         if isinstance(query_or_dataset, str):
-            doc_scores, doc_indices = self.get_relevant_doc(query_or_dataset, k=topk)
+            doc_scores, doc_indices = self.get_topk_doc_id_and_score_for_querys(query_or_dataset, k=topk)
             print("[Search query]\n", query_or_dataset, "\n")
 
             for i in range(topk):
@@ -115,14 +154,16 @@ class BM25Retrieval:
             # Retrieve한 Passage를 pd.DataFrame으로 반환합니다.
             total = []
             with timer("query exhaustive search"):
-                doc_scores, doc_indices = self.get_relevant_doc_bulk(query_or_dataset["question"], k=topk)
+                doc_indices, doc_scores = self.get_topk_doc_id_and_score_for_querys(
+                    query_or_dataset["question"], top_k=topk
+                )
             for idx, example in enumerate(tqdm(query_or_dataset, desc="Sparse retrieval: ")):
                 tmp = {
                     # Query와 해당 id를 반환합니다.
                     "question": example["question"],
                     "id": example["id"],
                     # Retrieve한 Passage의 id, context를 반환합니다.
-                    "context": " ".join([self.contexts[pid] for pid in doc_indices[idx]]),
+                    "context": " ".join([self.wiki_id_context_dict[pid] for pid in doc_indices[example["question"]]]),
                 }
                 if "context" in example.keys() and "answers" in example.keys():
                     # validation 데이터를 사용하면 ground_truth context와 answer도 반환합니다.
@@ -132,51 +173,3 @@ class BM25Retrieval:
 
             cqas = pd.DataFrame(total)
             return cqas
-
-    def get_relevant_doc_bulk(self, queries: List, k: Optional[int] = 1) -> Tuple[List, List]:
-
-        """
-        Arguments:
-            queries (List):
-                하나의 Query를 받습니다.
-            k (Optional[int]): 1
-                상위 몇 개의 Passage를 반환할지 정합니다.
-        Note:
-            vocab 에 없는 이상한 단어로 query 하는 경우 assertion 발생 (예) 뙣뙇?
-        """
-
-        if os.path.isfile("../../data/doc_scores.npy"):
-            doc_scores = np.load("../../data/doc_scores.npy")
-            doc_indices = np.load("../../data/doc_indices.npy")
-            doc_scores = doc_scores.tolist()
-            doc_indices = doc_indices.tolist()
-
-        else:
-            doc_scores = []
-            doc_indices = []
-            for query in queries:
-                scores = self.bm25.get_scores(self.tokenize_fn(query))
-                sorted_scores = np.argsort(scores)[::-1]
-                doc_scores.append(scores[sorted_scores][:k].tolist())
-                doc_indices.append(sorted_scores.tolist()[:k])
-
-            doc_scores = np.array(doc_scores)
-            doc_indices = np.array(doc_indices)
-            np.save("./data/doc_scores", doc_scores)
-            np.save("./data/doc_indices", doc_indices)
-
-            doc_scores = np.load("./data/doc_scores.npy")
-            doc_indices = np.load("./data/doc_indices.npy")
-            doc_scores = doc_scores.tolist()
-            doc_indices = doc_indices.tolist()
-
-        return doc_scores, doc_indices
-
-    def get_relevant_doc(self, query: str, k: Optional[int] = 1) -> Tuple[List, List]:
-
-        scores = self.bm25.get_scores(self.tokenize_fn(query))
-        sorted_scores = np.argsort(scores)[::-1]
-        doc_scores = scores[sorted_scores][:k].tolist()
-        doc_indices = sorted_scores.tolist()[:k]
-
-        return doc_scores, doc_indices
