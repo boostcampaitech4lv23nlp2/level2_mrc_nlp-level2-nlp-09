@@ -21,6 +21,7 @@ def post_processing_function(examples, features, predictions, training_args, dat
         predictions=predictions,
         max_answer_length=data_args.max_answer_length,
         output_dir=training_args.output_dir,
+        use_custom_postprocess=data_args.use_custom_postprocess,
     )
     # Metric을 구할 수 있도록 Format을 맞춰줍니다.
     formatted_predictions = [{"id": k, "prediction_text": v} for k, v in predictions.items()]
@@ -43,6 +44,7 @@ def postprocess_qa_predictions(
     output_dir: Optional[str] = None,
     prefix: Optional[str] = None,
     is_world_process_zero: bool = True,
+    use_custom_postprocess: bool = False,
 ):
     """
     Post-processes : qa model의 prediction 값을 후처리하는 함수
@@ -178,6 +180,18 @@ def postprocess_qa_predictions(
         if len(predictions) == 0 or (len(predictions) == 1 and predictions[0]["text"] == ""):
 
             predictions.insert(0, {"text": "empty", "start_logit": 0.0, "end_logit": 0.0, "score": 0.0})
+
+        if use_custom_postprocess:
+            word_pred_dict = {}
+            for pred in predictions:
+                if pred["text"] not in word_pred_dict:
+                    word_pred_dict[pred["text"]] = pred["score"]
+                else:
+                    word_pred_dict[pred["text"]] += pred["score"]
+
+            for idx, pred in enumerate(predictions):
+                predictions[idx]["score"] = word_pred_dict[pred["text"]]
+            predictions = sorted(predictions, key=lambda x: x["score"], reverse=True)
 
         # 모든 점수의 소프트맥스를 계산합니다(we do it with numpy to stay independent from torch/tf in this file, using the LogSumExp trick).
         scores = np.array([pred.pop("score") for pred in predictions])
