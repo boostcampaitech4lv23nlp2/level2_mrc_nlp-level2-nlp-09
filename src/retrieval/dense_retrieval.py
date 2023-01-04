@@ -252,7 +252,7 @@ class DenseRetrieval:
 
         if os.path.isfile("./data/embedding.bin"):
             with open("./data/embedding.bin", "rb") as f:
-                self.p_embs = pickle.load(f)
+                p_embs = pickle.load(f)
         else:
             self.tokenized_example = self.tokenizer(
                 self.contexts, truncation=True, max_length=512, padding="max_length", return_tensors="pt"
@@ -319,7 +319,7 @@ class DenseRetrieval:
         q_embs = np.array(q_embs)
 
         if torch.cuda.is_available():
-            p_embs_cuda = torch.Tensor(self.p_embs).to("cuda")
+            p_embs_cuda = torch.Tensor(p_embs).to("cuda")
             q_embs_cuda = torch.Tensor(q_embs).to("cuda")
         dot_prod_scores = torch.matmul(q_embs_cuda, torch.transpose(p_embs_cuda, 0, 1))
         rank = torch.argsort(dot_prod_scores, dim=1, descending=True).squeeze()

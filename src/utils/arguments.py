@@ -128,6 +128,7 @@ class DataTrainingArguments:
         default=data["top_k_retrieval"],
         metadata={"help": "Define how many top-k passages to retrieve based on similarity."},
     )
-    use_faiss: bool = (field(default=data["use_faiss"], metadata={"help": "Whether to build with faiss"}),)
+    use_faiss: bool = field(default=data["use_faiss"], metadata={"help": "Whether to build with faiss"})
     num_neg: int = (field(default=data["num_neg"]),)
     evaluate: bool = field(default=True)
+    do_dpr_train: bool = field(default=False)
