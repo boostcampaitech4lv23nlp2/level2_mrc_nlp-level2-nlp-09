@@ -39,6 +39,24 @@ def compute_metrics(p: EvalPrediction) -> Dict:
     return metric.compute(predictions=p.predictions, references=p.label_ids)
 
 
+def evaluate(model_args, data_args, training_args):
+
+    datasets = load_from_disk("./data/train_dataset")
+    tokenizer = AutoTokenizer.from_pretrained("kykim/bert-kor-base")
+    q_encoder = "./output/q_encoder"
+    q_encoder = BertEncoder.from_pretrained(q_encoder)
+
+    if model_args.bm25:
+        retriever = BM25Retrieval(
+            tokenize_fn=tokenizer.tokenize, data_path="./data/", context_path="wikipedia_documents.json"
+        )
+        retriever.evaluate(datasets, [1, 5, 10, 15, 20, 25, 30, 50, 100])
+    elif model_args.dpr:
+
+        bm25_dense_retrieval = BM25DenseRetrieval(training_args, datasets, tokenizer, 2, q_encoder)
+        bm25_dense_retrieval.evaluate(datasets["validation"]["question"], 100)
+
+
 def inference(model_args, data_args, training_args):
     # 가능한 arguments 들은 ./arguments.py 나 transformer package 안의 src/transformers/training_args.py 에서 확인 가능합니다.
     # --help flag 를 실행시켜서 확인할 수 도 있습니다.

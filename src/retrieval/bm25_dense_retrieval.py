@@ -53,16 +53,9 @@ class BM25DenseRetrieval:
         with open(os.path.join(data_path, context_path), "r", encoding="utf-8") as f:
             self.wiki = json.load(f)
 
-        new_wiki = {}
-        for i in range(len(self.wiki)):
-            key = str(i)
-            context = self.wiki[key]["text"]
-            self.wiki[key]["text"] = self.preprocess(context)
-            new_wiki[key] = self.wiki[key]
-
-        self.contexts = list(dict.fromkeys([v["text"] for v in new_wiki.values()]))
-        self.wiki_context_id_dict = {v["text"]: v["document_id"] for v in new_wiki.values()}
-        self.wiki_id_context_dict = {v["document_id"]: v["text"] for v in new_wiki.values()}
+        self.contexts = list(dict.fromkeys([v["text"] for v in self.wiki.values()]))
+        self.wiki_context_id_dict = {v["text"]: v["document_id"] for v in self.wiki.values()}
+        self.wiki_id_context_dict = {v["document_id"]: v["text"] for v in self.wiki.values()}
 
     def preprocess(self, text):
         text = re.sub(r"\n", " ", text)
@@ -173,3 +166,19 @@ class BM25DenseRetrieval:
 
             cqas = pd.DataFrame(total)
             return cqas
+
+    def evaluate(self, queries, top_k):
+        hybrid_ids, hybrid_scores = self.get_topk_doc_id_and_score_for_querys(queries, top_k)
+
+        for example in tqdm(self.datasets["validation"]):
+
+            question = example["question"]
+            text = example["context"]
+            corrected_prediction = 0
+            for texts in hybrid_ids[question]:
+                if text == self.wiki_id_context_dict[texts]:
+                    print("성공")
+
+                    corrected_prediction += 1
+
+        print(f"top_k : {top_k} 정확도 : {corrected_prediction / 240  * 100}")

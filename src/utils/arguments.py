@@ -129,4 +129,5 @@ class DataTrainingArguments:
         metadata={"help": "Define how many top-k passages to retrieve based on similarity."},
     )
     use_faiss: bool = (field(default=data["use_faiss"], metadata={"help": "Whether to build with faiss"}),)
-    num_neg: int = field(default=data["num_neg"])
+    num_neg: int = (field(default=data["num_neg"]),)
+    evaluate: bool = field(default=True)

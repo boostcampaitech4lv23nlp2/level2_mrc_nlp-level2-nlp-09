@@ -48,16 +48,9 @@ class DenseRetrieval:
         with open(os.path.join(data_path, context_path), "r", encoding="utf-8") as f:
             self.wiki = json.load(f)
 
-        new_wiki = {}
-        for i in range(len(self.wiki)):
-            key = str(i)
-            context = self.wiki[key]["text"]
-            self.wiki[key]["text"] = self.preprocess(context)
-            new_wiki[key] = self.wiki[key]
-
-        self.contexts = list(dict.fromkeys([v["text"] for v in new_wiki.values()]))
-        self.wiki_context_id_dict = {v["text"]: v["document_id"] for v in new_wiki.values()}
-        self.wiki_id_context_dict = {v["document_id"]: v["text"] for v in new_wiki.values()}
+        self.contexts = list(dict.fromkeys([v["text"] for v in self.wiki.values()]))
+        self.wiki_context_id_dict = {v["text"]: v["document_id"] for v in self.wiki.values()}
+        self.wiki_id_context_dict = {v["document_id"]: v["text"] for v in self.wiki.values()}
 
         self.tokenized_examples = defaultdict(list)
 

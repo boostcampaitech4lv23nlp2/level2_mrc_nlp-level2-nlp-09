@@ -53,14 +53,7 @@ class BM25Retrieval:
         with open(os.path.join(data_path, context_path), "r", encoding="utf-8") as f:
             self.wiki = json.load(f)
 
-        new_wiki = {}
-        for i in range(len(self.wiki)):
-            key = str(i)
-            context = self.wiki[key]["text"]
-            self.wiki[key]["text"] = self.preprocess(context)
-            new_wiki[key] = self.wiki[key]
-
-        self.contexts = list(dict.fromkeys([v["text"] for v in new_wiki.values()]))  # set 은 매번 순서가 바뀌므로
+        self.contexts = list(dict.fromkeys([v["text"] for v in self.wiki.values()]))  # set 은 매번 순서가 바뀌므로
         print(f"Lengths of unique contexts : {len(self.contexts)}")
         self.ids = list(range(len(self.contexts)))
 
@@ -145,9 +138,9 @@ class BM25Retrieval:
             vocab 에 없는 이상한 단어로 query 하는 경우 assertion 발생 (예) 뙣뙇?
         """
 
-        if os.path.isfile("../../data/doc_scores.npy"):
-            doc_scores = np.load("../../data/doc_scores.npy")
-            doc_indices = np.load("../../data/doc_indices.npy")
+        if os.path.isfile("./data/valid_doc_scores.npy"):
+            doc_scores = np.load("./data/valid_doc_scores.npy")
+            doc_indices = np.load("./data/valid_doc_indices.npy")
             doc_scores = doc_scores.tolist()
             doc_indices = doc_indices.tolist()
 
@@ -162,11 +155,11 @@ class BM25Retrieval:
 
             doc_scores = np.array(doc_scores)
             doc_indices = np.array(doc_indices)
-            np.save("./data/doc_scores", doc_scores)
-            np.save("./data/doc_indices", doc_indices)
+            np.save("./data/valid_doc_scores", doc_scores)
+            np.save("./data/valid_doc_indices", doc_indices)
 
-            doc_scores = np.load("./data/doc_scores.npy")
-            doc_indices = np.load("./data/doc_indices.npy")
+            doc_scores = np.load("./data/valid_doc_scores.npy")
+            doc_indices = np.load("./data/valid_doc_indices.npy")
             doc_scores = doc_scores.tolist()
             doc_indices = doc_indices.tolist()
 
@@ -180,3 +173,18 @@ class BM25Retrieval:
         doc_indices = sorted_scores.tolist()[:k]
 
         return doc_scores, doc_indices
+
+    def evaluate(self, datasets, top_k):
+        for k in top_k:
+
+            doc_scores, doc_indices = self.get_relevant_doc_bulk(datasets["validation"]["question"], k=k)
+            corrected_prediction = 0
+            for row, example in enumerate(tqdm(datasets["validation"])):
+
+                text = example["context"]
+                for texts in set(doc_indices[row][:k]):
+                    if text == self.contexts[texts]:
+
+                        corrected_prediction += 1
+
+            print(f"top_k : {k} 정확도 : {corrected_prediction / 240  * 100:.2f}%")
