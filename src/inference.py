@@ -1,4 +1,11 @@
-from typing import Callable, Dict, List, NoReturn
+"""
+Open-Domain Question Answering 을 수행하는 inference 코드 입니다.
+
+대부분의 로직은 train.py 와 비슷하나 retrieval, predict 부분이 추가되어 있습니다.
+"""
+
+
+from typing import Callable, Dict, List
 
 import logging
 import sys
@@ -14,8 +21,12 @@ from transformers import (
     set_seed,
 )
 
+from .model.model import BertEncoder
 from .preprocess import PreProcessor
-from .retrieval import SparseRetrieval
+from .retrieval.bm25_dense_retrieval import BM25DenseRetrieval
+from .retrieval.bm25_retrieval import BM25Retrieval
+from .retrieval.dense_retrieval import DenseRetrieval
+from .retrieval.retrieval import SparseRetrieval
 from .trainer_qa import QuestionAnsweringTrainer
 from .utils import DataTrainingArguments, ModelArguments
 
@@ -46,6 +57,7 @@ def inference(model_args, data_args, training_args):
     set_seed(training_args.seed)
 
     datasets = load_from_disk(data_args.dataset_name)
+    print(datasets)
 
     # AutoConfig를 이용하여 pretrained model 과 tokenizer를 불러옵니다.
     # argument로 원하는 모델 이름을 설정하면 옵션을 바꿀 수 있습니다.
@@ -62,18 +74,62 @@ def inference(model_args, data_args, training_args):
         config=config,
     )
 
+    data_args.use_faiss = False
     # True일 경우 : run passage retrieval
-    if data_args.eval_retrieval:
+    if data_args.eval_retrieval and model_args.bm25 and not model_args.dpr:
+        datasets = run_bm25_retrieval(
+            tokenizer.tokenize,
+            datasets,
+            training_args,
+            data_args,
+        )
+    elif data_args.eval_retrieval and model_args.dpr and not model_args.bm25:
+        tokenizer = AutoTokenizer.from_pretrained("kykim/bert-kor-base")
+        datasets = run_dense_retrieval(tokenizer, datasets, training_args, data_args)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+            use_fast=True,
+        )
+
+    elif data_args.eval_retrieval and model_args.dpr and model_args.bm25:
+        tokenizer = AutoTokenizer.from_pretrained("kykim/bert-kor-base")
+        datasets = run_bm25_dense_retrieval(tokenizer, datasets, training_args, data_args)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+            use_fast=True,
+        )
+
+    else:
         datasets = run_sparse_retrieval(
             tokenizer.tokenize,
             datasets,
             training_args,
             data_args,
         )
-
     # eval or predict mrc model
     if training_args.do_eval or training_args.do_predict:
         run_mrc(data_args, training_args, model_args, datasets, tokenizer, model)
+
+
+def run_bm25_retrieval(
+    tokenize_fn: Callable[[str], List[str]],
+    datasets: DatasetDict,
+    training_args: TrainingArguments,
+    data_args: DataTrainingArguments,
+    data_path: str = "data",
+    context_path: str = "wikipedia_documents.json",
+) -> DatasetDict:
+
+    retriever = BM25Retrieval(tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path)
+
+    if data_args.use_faiss:
+        retriever.build_faiss(num_clusters=data_args.num_clusters)
+        df = retriever.retrieve_faiss(datasets["validation"], topk=data_args.top_k_retrieval)
+    else:
+        df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+
+    datasets = DatasetDict({"validation": Dataset.from_pandas(df)})
+    return datasets
 
 
 def run_sparse_retrieval(
@@ -99,6 +155,67 @@ def run_sparse_retrieval(
     return datasets
 
 
+def run_dense_retrieval(
+    tokenizer,
+    datasets: DatasetDict,
+    training_args: TrainingArguments,
+    data_args: DataTrainingArguments,
+    data_path: str = "data",
+    context_path: str = "wikipedia_documents.json",
+) -> DatasetDict:
+
+    p_encoder = BertEncoder.from_pretrained(training_args.output_dir + "/p_encoder")
+    q_encoder = BertEncoder.from_pretrained(training_args.output_dir + "/q_encoder")
+    # Query에 맞는 Passage들을 Retrieval 합니다.
+    retriever = DenseRetrieval(
+        training_args,
+        datasets,
+        tokenizer,
+        data_args.num_neg,
+        data_path=data_path,
+        context_path=context_path,
+    )
+
+    if data_args.use_faiss:
+        retriever.build_faiss(num_clusters=data_args.num_clusters)
+        df = retriever.retrieve_faiss(datasets["validation"], topk=data_args.top_k_retrieval)
+    else:
+        df = retriever.retrieve(p_encoder, q_encoder, datasets["validation"], topk=data_args.top_k_retrieval)
+
+    datasets = DatasetDict({"validation": Dataset.from_pandas(df)})
+    return datasets
+
+
+def run_bm25_dense_retrieval(
+    tokenize_fn: Callable[[str], List[str]],
+    datasets: DatasetDict,
+    training_args: TrainingArguments,
+    data_args: DataTrainingArguments,
+    data_path: str = "data",
+    context_path: str = "wikipedia_documents.json",
+) -> DatasetDict:
+
+    q_encoder = BertEncoder.from_pretrained(training_args.output_dir + "/q_encoder")
+    retriever = BM25DenseRetrieval(
+        training_args,
+        datasets,
+        tokenize_fn,
+        data_args.num_neg,
+        q_encoder,
+        data_path=data_path,
+        context_path=context_path,
+    )
+
+    if data_args.use_faiss:
+        retriever.build_faiss(num_clusters=data_args.num_clusters)
+        df = retriever.retrieve_faiss(datasets["validation"], topk=data_args.top_k_retrieval)
+    else:
+        df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+
+    datasets = DatasetDict({"validation": Dataset.from_pandas(df)})
+    return datasets
+
+
 def run_mrc(
     data_args: DataTrainingArguments,
     training_args: TrainingArguments,
@@ -106,14 +223,14 @@ def run_mrc(
     datasets: DatasetDict,
     tokenizer,
     model,
-) -> NoReturn:
+) -> None:
 
     preprocessor = PreProcessor(
         datasets=datasets, tokenizer=tokenizer, data_args=data_args, training_args=training_args
     )
+
     eval_dataset = datasets["validation"]
 
-    # Validation Feature 생성
     eval_dataset = preprocessor.get_eval_dataset()
 
     # Data collator
@@ -121,6 +238,7 @@ def run_mrc(
     # 그렇지 않다면 data collator에서 padding을 진행해야합니다.
     data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8 if training_args.fp16 else None)
 
+    # Trainer 초기화
     trainer = QuestionAnsweringTrainer(
         model=model,
         args=training_args,
@@ -136,15 +254,8 @@ def run_mrc(
     logger.info("*** Evaluate ***")
 
     # eval dataset & eval example - predictions.json 생성됨
-
-    if training_args.do_eval:
-        metrics = trainer.evaluate()
-        metrics["eval_samples"] = len(eval_dataset)
-
-        trainer.log_metrics("test", metrics)
-        trainer.save_metrics("test", metrics)
-
     if training_args.do_predict:
         trainer.predict(test_dataset=eval_dataset, test_examples=datasets["validation"])
+
         # predictions.json 은 postprocess_qa_predictions() 호출시 이미 저장됩니다.
         print("No metric can be presented because there is no correct answer given. Job done!")
