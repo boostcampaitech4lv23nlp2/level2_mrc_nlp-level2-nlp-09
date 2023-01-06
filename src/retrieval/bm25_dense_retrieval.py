@@ -3,7 +3,6 @@ from typing import List, Optional, Tuple, Union
 import json
 import os
 import pickle
-import re
 import time
 from contextlib import contextmanager
 
@@ -56,14 +55,6 @@ class BM25DenseRetrieval:
         self.contexts = list(dict.fromkeys([v["text"] for v in self.wiki.values()]))
         self.wiki_context_id_dict = {v["text"]: v["document_id"] for v in self.wiki.values()}
         self.wiki_id_context_dict = {v["document_id"]: v["text"] for v in self.wiki.values()}
-
-    def preprocess(self, text):
-        text = re.sub(r"\n", " ", text)
-        text = re.sub(r"\\n", " ", text)  # remove newline character
-        text = re.sub(r"\s+", " ", text)  # remove continuous spaces
-        text = re.sub(r"#", " ", text)
-
-        return text
 
     def get_topk_doc_id_and_score(self, query, top_k):
         es_score, es_id = self.sparse_retrieval.get_relevant_doc(query=query, k=top_k)

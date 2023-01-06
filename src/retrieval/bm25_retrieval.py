@@ -2,15 +2,16 @@ from typing import List, Optional, Tuple, Union
 
 import json
 import os
-import re
+import pickle
 import time
 from contextlib import contextmanager
 
 import numpy as np
 import pandas as pd
-from datasets import Dataset
+from datasets import Dataset, load_from_disk
 from rank_bm25 import BM25Okapi
 from tqdm import tqdm
+from transformers import AutoTokenizer
 
 
 @contextmanager
@@ -61,14 +62,6 @@ class BM25Retrieval:
         self.bm25 = BM25Okapi(self.contexts, tokenize_fn)
         self.tokenize_fn = tokenize_fn
 
-    def preprocess(self, text):
-        text = re.sub(r"\n", " ", text)
-        text = re.sub(r"\\n", " ", text)  # remove newline character
-        text = re.sub(r"\s+", " ", text)  # remove continuous spaces
-        text = re.sub(r"#", " ", text)
-
-        return text
-
     def retrieve(
         self, query_or_dataset: Union[str, Dataset], topk: Optional[int] = 1
     ) -> Union[Tuple[List, List], pd.DataFrame]:
@@ -115,7 +108,7 @@ class BM25Retrieval:
                     "question": example["question"],
                     "id": example["id"],
                     # Retrieve한 Passage의 id, context를 반환합니다.
-                    "context": " ".join([self.contexts[pid] for pid in doc_indices[idx]]),
+                    "context": " ".join([self.contexts[pid] for pid in doc_indices["question"]]),
                 }
                 if "context" in example.keys() and "answers" in example.keys():
                     # validation 데이터를 사용하면 ground_truth context와 answer도 반환합니다.
@@ -138,30 +131,27 @@ class BM25Retrieval:
             vocab 에 없는 이상한 단어로 query 하는 경우 assertion 발생 (예) 뙣뙇?
         """
 
-        if os.path.isfile("./data/valid_doc_scores.npy"):
-            doc_scores = np.load("./data/valid_doc_scores.npy")
-            doc_indices = np.load("./data/valid_doc_indices.npy")
-            doc_scores = doc_scores.tolist()
-            doc_indices = doc_indices.tolist()
+        if os.path.isfile("../../data/train_doc_scores.bin"):
+
+            with open("../../data/train_doc_indices.bin") as f:
+                doc_indices = pickle.load(f)
+
+            with open("../../data/train_doc_scores.bin") as f:
+                doc_scores = pickle.load(f)
 
         else:
-            doc_scores = []
-            doc_indices = []
+            doc_scores = {}
+            doc_indices = {}
             for query in queries:
                 scores = self.bm25.get_scores(self.tokenize_fn(query))
                 sorted_scores = np.argsort(scores)[::-1]
-                doc_scores.append(scores[sorted_scores][:k].tolist())
-                doc_indices.append(sorted_scores.tolist()[:k])
+                doc_scores[query] = scores[sorted_scores][:k].tolist()
+                doc_indices[query] = sorted_scores.tolist()[:k]
 
-            doc_scores = np.array(doc_scores)
-            doc_indices = np.array(doc_indices)
-            np.save("./data/valid_doc_scores", doc_scores)
-            np.save("./data/valid_doc_indices", doc_indices)
-
-            doc_scores = np.load("./data/valid_doc_scores.npy")
-            doc_indices = np.load("./data/valid_doc_indices.npy")
-            doc_scores = doc_scores.tolist()
-            doc_indices = doc_indices.tolist()
+            with open("../../data/train_doc_scores.bin") as f:
+                pickle.dump(doc_scores)
+            with open("../../data/train_doc_indices.bin") as f:
+                pickle.dump(doc_indices)
 
         return doc_scores, doc_indices
 
@@ -188,3 +178,13 @@ class BM25Retrieval:
                         corrected_prediction += 1
 
             print(f"top_k : {k} 정확도 : {corrected_prediction / 240  * 100:.2f}%")
+
+
+if __name__ == "__main__":
+
+    datasets = load_from_disk("../../data/train_dataset")
+    tokenizer = AutoTokenizer.from_pretrained("klue/roberta-large")
+    retriever = BM25Retrieval(
+        tokenize_fn=tokenizer.tokenize, data_path="../../data/", context_path="wikipedia_documents.json"
+    )
+    retriever.get_relevant_doc_bulk(datasets["train"]["question"], k=100)

@@ -13,8 +13,6 @@ if __name__ == "__main__":
     training_args = get_training_args()
     if data_args.do_dpr_train:
         dpr_train(model_args, data_args, training_args)
-
-    print(data_args.evaluate)
     if data_args.evaluate:
         evaluate(model_args, data_args, training_args)
     elif training_args.do_train:

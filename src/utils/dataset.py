@@ -13,13 +13,14 @@ class CustomDataset(Dataset):
         dataset,
         bm25_dataset,
         tokenizer,
-        data_path: Optional[str] = "../data/",
+        num_neg,
+        data_path: Optional[str] = "./data/",
         context_path: Optional[str] = "wikipedia_documents.json",
     ):
         self.dataset = dataset
         self.bm25_dataset = bm25_dataset
 
-        preprocess_data = self.preprocess_train(tokenizer)
+        preprocess_data = self.preprocess_train(tokenizer, num_neg)
 
         self.p_input_ids = preprocess_data[0]
         self.p_attension_mask = preprocess_data[1]
@@ -50,7 +51,11 @@ class CustomDataset(Dataset):
         )
 
     def preprocess_train(
-        self, tokenizer, data_path: Optional[str] = "../data/", context_path: Optional[str] = "wikipedia_documents.json"
+        self,
+        tokenizer,
+        num_neg,
+        data_path: Optional[str] = "./data/",
+        context_path: Optional[str] = "preprocess_wiki.json",
     ):
 
         self.tokenizer = tokenizer
@@ -59,14 +64,19 @@ class CustomDataset(Dataset):
             wiki = json.load(f)
 
         self.contexts = list(dict.fromkeys([v["text"] for v in wiki.values()]))
+        self.wiki_context_id_dict = {v["text"]: v["document_id"] for v in self.wiki.values()}
+        self.wiki_id_context_dict = {v["document_id"]: v["text"] for v in self.wiki.values()}
+        self.wiki_id_title = {v["document_id"]: v["title"] for v in self.wiki.values()}
 
         dataset = self.dataset.to_pandas()
-        num_neg = 2
+        num_neg = num_neg
 
         pos_ctx = dataset["context"].to_list()
+        pos_title = dataset["title"].to_list()
         questions = dataset["question"].to_list()
 
         neg_ctx = []
+        neg_title = []
         with open(self.bm25_dataset, "r") as f:
             bm25 = json.load(f)
 
@@ -82,6 +92,7 @@ class CustomDataset(Dataset):
                 if (ground_truth != neg_ctx_sample) and (answer not in neg_ctx_sample):
                     # 비슷한 context를 추가하되 정답을 포함하지 않는 문장을 추가한다.
                     neg_ctx.append(self.contexts[int(bm25[q][idx])])
+                    neg_title.append(self.wiki_id_title[self.wiki_context_id_dict[self.contexts[int(bm25[q][idx])]]])
                     cnt -= 1
                 idx += 1
                 if idx == len(bm25[q]):
@@ -89,8 +100,10 @@ class CustomDataset(Dataset):
                     idx_step = 1
                     while cnt != 0:
                         temp_neg = pos_ctx[i - idx_step]
+                        temp_neg_title = pos_title[i - idx_step]
                         # 이전에 추가된 ground truth context를 negative sample로 생성
                         neg_ctx.append(temp_neg)
+                        neg_title.append(temp_neg_title)
                         idx_step += 1
                         cnt -= 1
 

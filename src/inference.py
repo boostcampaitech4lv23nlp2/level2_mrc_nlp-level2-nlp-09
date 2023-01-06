@@ -43,18 +43,27 @@ def evaluate(model_args, data_args, training_args):
 
     datasets = load_from_disk("./data/train_dataset")
     tokenizer = AutoTokenizer.from_pretrained("kykim/bert-kor-base")
-    q_encoder = "./output/q_encoder"
-    q_encoder = BertEncoder.from_pretrained(q_encoder)
+    p_encoder = BertEncoder.from_pretrained(training_args.output_dir + "/p_encoder")
+    q_encoder = BertEncoder.from_pretrained(training_args.output_dir + "/q_encoder")
 
     if model_args.bm25:
         retriever = BM25Retrieval(
             tokenize_fn=tokenizer.tokenize, data_path="./data/", context_path="wikipedia_documents.json"
         )
         retriever.evaluate(datasets, [1, 5, 10, 15, 20, 25, 30, 50, 100])
-    elif model_args.dpr:
-
         bm25_dense_retrieval = BM25DenseRetrieval(training_args, datasets, tokenizer, 2, q_encoder)
         bm25_dense_retrieval.evaluate(datasets["validation"]["question"], 100)
+    elif model_args.dpr:
+
+        retriever = DenseRetrieval(
+            training_args,
+            datasets,
+            tokenizer,
+            data_args.num_neg,
+            data_path="./data/",
+            context_path="wikipedia_documents.json",
+        )
+        retriever.evaluate(datasets, [1, 5, 10, 15, 20, 25, 30, 50, 100], p_encoder, q_encoder)
 
 
 def inference(model_args, data_args, training_args):
@@ -134,7 +143,7 @@ def run_bm25_retrieval(
     datasets: DatasetDict,
     training_args: TrainingArguments,
     data_args: DataTrainingArguments,
-    data_path: str = "data",
+    data_path: str = "./data/",
     context_path: str = "wikipedia_documents.json",
 ) -> DatasetDict:
 
@@ -155,7 +164,7 @@ def run_sparse_retrieval(
     datasets: DatasetDict,
     training_args: TrainingArguments,
     data_args: DataTrainingArguments,
-    data_path: str = "data",
+    data_path: str = "./data/",
     context_path: str = "wikipedia_documents.json",
 ) -> DatasetDict:
 
@@ -178,7 +187,7 @@ def run_dense_retrieval(
     datasets: DatasetDict,
     training_args: TrainingArguments,
     data_args: DataTrainingArguments,
-    data_path: str = "data",
+    data_path: str = "./data/",
     context_path: str = "wikipedia_documents.json",
 ) -> DatasetDict:
 
@@ -209,7 +218,7 @@ def run_bm25_dense_retrieval(
     datasets: DatasetDict,
     training_args: TrainingArguments,
     data_args: DataTrainingArguments,
-    data_path: str = "data",
+    data_path: str = "./data/",
     context_path: str = "wikipedia_documents.json",
 ) -> DatasetDict:
 

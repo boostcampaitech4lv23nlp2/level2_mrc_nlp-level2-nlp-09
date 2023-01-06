@@ -19,8 +19,8 @@ def dpr_train(model_args, data_args, training_args):
     p_encoder = BertEncoder.from_pretrained(model_checkpoint).to(device)
     q_encoder = BertEncoder.from_pretrained(model_checkpoint).to(device)
 
-    train_dataset = CustomDataset(datasets["train"], "../data/train_doc_scores.json", tokenizer)
-    valid_dataset = CustomDataset(datasets["validation"], "../data/valid_doc_scores.json", tokenizer)
+    train_dataset = CustomDataset(datasets["train"], "./data/train_doc_scores.json", tokenizer, num_neg=50)
+    valid_dataset = CustomDataset(datasets["validation"], "./data/valid_doc_scores.json", tokenizer, num_neg=50)
 
     retriever = DenseRetrieval(
         args=training_args,

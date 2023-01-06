@@ -67,6 +67,8 @@ class DenseRetrieval:
         args = self.args
         self.train_dataset = train_dataset
         self.valid_dataset = valid_dataset
+        self.p_encoder = p_encoder
+        self.q_encoder = q_encoder
 
         train_sampler = RandomSampler(self.train_dataset)
         self.train_dataloader = DataLoader(
@@ -106,9 +108,12 @@ class DenseRetrieval:
 
         # Start training!
         global_step = 0
+        if torch.cuda.is_available():
+            self.p_encoder.cuda()
+            self.q_encoder.cuda()
 
-        p_encoder.zero_grad()
-        q_encoder.zero_grad()
+        self.p_encoder.zero_grad()
+        self.q_encoder.zero_grad()
         torch.cuda.empty_cache()
 
         train_iterator = tqdm(range(int(args.num_train_epochs)), desc="Epoch")
@@ -125,8 +130,8 @@ class DenseRetrieval:
             with tqdm(self.train_dataloader, unit="batch") as tepoch:
                 for batch in tepoch:
                     train_step += 1
-                    p_encoder.train()
-                    q_encoder.train()
+                    self.p_encoder.train()
+                    self.q_encoder.train()
 
                     neg_batch_ids = []
                     neg_batch_att = []
@@ -156,8 +161,8 @@ class DenseRetrieval:
                         "token_type_ids": batch[8].cuda(),
                     }
 
-                    p_outputs = p_encoder(**p_inputs)  # (batch_size * 2, emb_dim)
-                    q_outputs = q_encoder(**q_inputs)  # (batch_size, emb_dim)
+                    p_outputs = self.p_encoder(**p_inputs)  # (batch_size * 2, emb_dim)
+                    q_outputs = self.q_encoder(**q_inputs)  # (batch_size, emb_dim)
 
                     # Calculate similarity score & loss
                     sim_scores = torch.matmul(
@@ -179,8 +184,8 @@ class DenseRetrieval:
                     loss.backward()
                     optimizer.step()
                     scheduler.step()
-                    q_encoder.zero_grad()
-                    p_encoder.zero_grad()
+                    self.q_encoder.zero_grad()
+                    self.p_encoder.zero_grad()
                     global_step += 1
                     # validation
                     if train_step % 247 == 0:
@@ -189,8 +194,8 @@ class DenseRetrieval:
                         v_epoch_iterator = tqdm(self.valid_dataloader, desc="Iteration")
                         for step, batch in enumerate(v_epoch_iterator):
                             with torch.no_grad():
-                                q_encoder.eval()
-                                p_encoder.eval()
+                                self.q_encoder.eval()
+                                self.p_encoder.eval()
 
                                 cur_batch_size = batch[0].size()[0]
                                 # 마지막 배치의 drop last를 안하기 때문에 단순 batch_size를 사용하면 에러발생
@@ -207,8 +212,8 @@ class DenseRetrieval:
                                     "attention_mask": batch[7],
                                     "token_type_ids": batch[8],
                                 }
-                                p_outputs = p_encoder(**p_inputs)
-                                q_outputs = q_encoder(**q_inputs)
+                                p_outputs = self.p_encoder(**p_inputs)
+                                q_outputs = self.q_encoder(**q_inputs)
 
                                 sim_scores = torch.matmul(q_outputs, torch.transpose(p_outputs, 0, 1))
                                 targets = torch.arange(0, cur_batch_size).long()
@@ -232,8 +237,8 @@ class DenseRetrieval:
                             # valid_loss가 작아질 때만 저장하고 best_loss와 best_acc를 업데이트
                             # acc에 대해서도 가능합니다.
                             print("best model save")
-                            p_encoder.save_pretrained(args.output_dir + "/p_encoder")
-                            q_encoder.save_pretrained(args.output_dir + "/q_encoder")
+                            self.p_encoder.save_pretrained(args.output_dir + "/p_encoder")
+                            self.q_encoder.save_pretrained(args.output_dir + "/q_encoder")
                             best_loss = valid_loss
 
                 num_epoch += 1
@@ -535,3 +540,23 @@ class DenseRetrieval:
         D, I = self.indexer.search(q_embs, k)
 
         return D.tolist(), I.tolist()
+
+    def evaluate(self, datasets, top_k, p_encoder, q_encoder):
+        p_encoder = p_encoder.cuda()
+        q_encoder = q_encoder.cuda()
+
+        for k in top_k:
+
+            doc_scores, doc_indices = self.get_relevant_doc(
+                datasets["validation"]["question"], k=k, p_encoder=p_encoder, q_encoder=q_encoder
+            )
+            corrected_prediction = 0
+            for row, example in enumerate(tqdm(datasets["validation"])):
+                query = example["question"]
+                text = example["context"]
+                for texts in set(doc_indices[query]):
+                    if text == self.wiki_id_context_dict[texts]:
+
+                        corrected_prediction += 1
+
+            print(f"top_k : {k} 정확도 : {corrected_prediction / 240  * 100:.2f}%")
